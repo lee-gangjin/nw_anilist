@@ -137,14 +137,28 @@ function inPageExtractor() {
 
     seenTitleIds.add(titleId);
 
-    // 1) Title Name
+    // 1) Title Name (Clean badges like '휴재', '완결', 'UP', 'NEW')
     const titleEl = container.querySelector('[class*="title"], [class*="name"], strong, h3, h4, .tit');
-    let titleName = titleEl ? titleEl.textContent.trim() : '';
+    let titleName = '';
+
+    if (titleEl) {
+      // Clone element and remove badge/tag children so their text isn't concatenated
+      const clone = titleEl.cloneNode(true);
+      clone.querySelectorAll('[class*="badge"], [class*="rest"], [class*="hiatus"], [class*="tag"], [class*="icon"], [class*="blind"], em, i').forEach(b => b.remove());
+      titleName = clone.textContent.trim();
+    }
+
     if (!titleName) {
       titleName = link.getAttribute('title') || link.textContent.trim();
     }
-    // Clean up UP, NEW, etc.
-    titleName = titleName.replace(/^(?:UP|NEW)\s*/i, '').trim();
+
+    // Strip any remaining prefix text like "[휴재]", "휴재", "휴재신화급...", "UP", "NEW"
+    titleName = titleName
+      .replace(/^\[?(?:휴재|완결|UP|NEW|단독|독점|무료|15|18|19|컷툰|스마트툰)\]?\s*/gi, '')
+      .replace(/^(?:휴재|완결|UP|NEW)\s*/gi, '')
+      .replace(/^(?:휴재|완결|UP|NEW)(?=[가-힣A-Za-z0-9])/gi, '')
+      .trim();
+
     if (!titleName || titleName.length < 2) return;
 
     // 2) Episode Number Extraction (Crucial!)

@@ -83,6 +83,11 @@ export const AniListService = {
    * Search Manga / Manhwa by Korean, Romaji or English title
    */
   async searchManga(searchTitle, perPage = 8) {
+    let cleanTitle = (searchTitle || '')
+      .replace(/^\[?(?:휴재|완결|UP|NEW|단독|독점|무료|15|18|19)\]?\s*/gi, '')
+      .replace(/^(?:휴재|완결|UP|NEW)(?=[가-힣A-Za-z0-9])/gi, '')
+      .trim();
+
     const query = `
       query ($search: String, $perPage: Int) {
         Page(page: 1, perPage: $perPage) {
@@ -109,7 +114,7 @@ export const AniListService = {
       }
     `;
 
-    const data = await this.request(query, { search: searchTitle, perPage });
+    const data = await this.request(query, { search: cleanTitle || searchTitle, perPage });
     return data?.Page?.media || [];
   },
 
