@@ -87,27 +87,6 @@
         <span>네이버 최근 본 웹툰 스캔</span>
       </button>
 
-      <!-- Advanced Sync Options -->
-      <div class="options-drawer">
-        <div class="option-row">
-          <label class="switch-label">
-            <input type="checkbox" id="chkCompleted" checked>
-            <span class="slider"></span>
-            <span class="option-text">
-              완결작은 <strong>'COMPLETED (다 읽음)'</strong>으로 자동 등록
-            </span>
-          </label>
-        </div>
-        <div class="option-row">
-          <label class="switch-label">
-            <input type="checkbox" id="chkHiatus" checked>
-            <span class="slider"></span>
-            <span class="option-text">
-              휴재작은 <strong>'PAUSED (일시 중단)'</strong>으로 자동 등록
-            </span>
-          </label>
-        </div>
-      </div>
     </section>
 
     <!-- Scan Status & Progress -->
@@ -118,24 +97,16 @@
 
     <!-- Webtoon Diff / Sync List -->
     <section id="resultsSection" class="results-section hidden">
-      <!-- Category Tabs (전체 / 연재 / 휴재 / 완결) -->
-      <div class="category-tabs" id="categoryTabs">
-        <button class="tab-btn active" data-filter="all">전체 <span id="countAll" class="tab-count">0</span></button>
-        <button class="tab-btn" data-filter="releasing">연재중 <span id="countReleasing" class="tab-count">0</span></button>
-        <button class="tab-btn tab-hiatus" data-filter="hiatus">⏸️ 휴재 <span id="countHiatus" class="tab-count">0</span></button>
-        <button class="tab-btn tab-completed" data-filter="completed">✅ 완결 <span id="countCompleted" class="tab-count">0</span></button>
-      </div>
-
       <div class="results-header">
         <div class="select-all-wrap">
           <label class="checkbox-container">
             <input type="checkbox" id="chkSelectAll" checked>
             <span class="checkmark"></span>
-            <span class="label-text">현재 탭 선택 (<span id="selectedCount">0</span>/<span id="currentTabCount">0</span>)</span>
+            <span class="label-text">전체 선택 (<span id="selectedCount">0</span>/<span id="totalCount">0</span>)</span>
           </label>
         </div>
         <div class="badge-filter">
-          <span id="filterSummary" class="filter-chip">동기화 대기</span>
+          <span id="filterSummary" class="filter-chip">AniList Reading 등록</span>
         </div>
       </div>
 

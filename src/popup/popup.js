@@ -12,8 +12,7 @@ const state = {
   settings: null,
   mappings: {},
   scannedItems: [], // { titleId, titleName, episodeNo, episodeTitle, isCompleted, isHiatus, thumbnail, anilistData: { mediaId, title, currentProgress, status }, selected }
-  activeSearchItem: null, // item currently being manually searched/matched
-  activeFilter: 'all' // 'all' | 'releasing' | 'hiatus' | 'completed'
+  activeSearchItem: null // item currently being manually searched/matched
 };
 
 // DOM Elements
@@ -33,26 +32,16 @@ const elements = {
   btnSaveToken: document.getElementById('btnSaveToken'),
   tokenError: document.getElementById('tokenError'),
 
-  // Actions & Settings
+  // Actions
   btnScanRecent: document.getElementById('btnScanRecent'),
-  chkCompleted: document.getElementById('chkCompleted'),
-  chkHiatus: document.getElementById('chkHiatus'),
   scanStatus: document.getElementById('scanStatus'),
   statusMessage: document.getElementById('statusMessage'),
-
-  // Category Tabs
-  categoryTabs: document.getElementById('categoryTabs'),
-  countAll: document.getElementById('countAll'),
-  countReleasing: document.getElementById('countReleasing'),
-  countHiatus: document.getElementById('countHiatus'),
-  countCompleted: document.getElementById('countCompleted'),
 
   // Results
   emptyState: document.getElementById('emptyState'),
   resultsSection: document.getElementById('resultsSection'),
   chkSelectAll: document.getElementById('chkSelectAll'),
   selectedCount: document.getElementById('selectedCount'),
-  currentTabCount: document.getElementById('currentTabCount'),
   totalCount: document.getElementById('totalCount'),
   webtoonList: document.getElementById('webtoonList'),
   bottomBar: document.getElementById('bottomBar'),
@@ -82,10 +71,6 @@ async function loadInitialState() {
   state.auth = await StorageService.getAuth();
   state.settings = await StorageService.getSettings();
   state.mappings = await StorageService.getMappings();
-
-  // Apply settings to checkboxes
-  elements.chkCompleted.checked = state.settings.completedHandling === 'COMPLETED';
-  elements.chkHiatus.checked = state.settings.hiatusHandling === 'PAUSED';
 
   // Render Auth State
   updateAuthUI();
@@ -123,39 +108,13 @@ function setupEventListeners() {
     showToast('AniList 연동이 해제되었습니다.');
   });
 
-  // Settings change
-  elements.chkCompleted.addEventListener('change', async () => {
-    const val = elements.chkCompleted.checked ? 'COMPLETED' : 'CURRENT';
-    await StorageService.setSettings({ completedHandling: val });
-    state.settings.completedHandling = val;
-    renderWebtoonList();
-  });
-
-  elements.chkHiatus.addEventListener('change', async () => {
-    const val = elements.chkHiatus.checked ? 'PAUSED' : 'CURRENT';
-    await StorageService.setSettings({ hiatusHandling: val });
-    state.settings.hiatusHandling = val;
-    renderWebtoonList();
-  });
-
   // Scan Recent Button
   elements.btnScanRecent.addEventListener('click', handleScanRecent);
 
-  // Category Tabs Switch
-  elements.categoryTabs.querySelectorAll('.tab-btn').forEach(btn => {
-    btn.addEventListener('click', () => {
-      elements.categoryTabs.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
-      btn.classList.add('active');
-      state.activeFilter = btn.dataset.filter;
-      renderWebtoonList();
-    });
-  });
-
-  // Select All for Current Active Tab
+  // Select All
   elements.chkSelectAll.addEventListener('change', (e) => {
     const isChecked = e.target.checked;
-    const currentTabItems = getFilteredItems();
-    currentTabItems.forEach(item => {
+    state.scannedItems.forEach(item => {
       if (item.anilistData && item.anilistData.mediaId) {
         item.selected = isChecked;
       }
@@ -296,13 +255,13 @@ async function handleScanRecent() {
         };
       }
 
-      // Check if update is needed
+      // Check if update is needed (Any episode difference or not currently Reading in AniList)
       const currentAL = anilistData ? anilistData.currentProgress : 0;
-      const isProgressNewer = item.episodeNo > currentAL;
-      const willBeCompleted = item.isCompleted && elements.chkCompleted.checked;
-      const willBeHiatus = item.isHiatus && elements.chkHiatus.checked;
+      const currentStatus = anilistData ? anilistData.currentStatus : 'NOT_IN_LIST';
+      const isProgressDifferent = item.episodeNo !== currentAL;
+      const isStatusDifferent = currentStatus !== 'CURRENT';
 
-      const needsSync = isProgressNewer || willBeCompleted || willBeHiatus || (anilistData && anilistData.currentStatus === 'NOT_IN_LIST');
+      const needsSync = isProgressDifferent || isStatusDifferent || currentStatus === 'NOT_IN_LIST';
 
       processedList.push({
         ...item,
@@ -339,39 +298,7 @@ function setLoadingStatus(isLoading, message = '') {
 }
 
 /**
- * Get items filtered by current active category tab
- */
-function getFilteredItems() {
-  switch (state.activeFilter) {
-    case 'releasing':
-      return state.scannedItems.filter(item => !item.isCompleted && !item.isHiatus);
-    case 'hiatus':
-      return state.scannedItems.filter(item => item.isHiatus);
-    case 'completed':
-      return state.scannedItems.filter(item => item.isCompleted);
-    case 'all':
-    default:
-      return state.scannedItems;
-  }
-}
-
-/**
- * Update Category Tab Counts
- */
-function updateCategoryCounts() {
-  const allCount = state.scannedItems.length;
-  const releasingCount = state.scannedItems.filter(i => !i.isCompleted && !i.isHiatus).length;
-  const hiatusCount = state.scannedItems.filter(i => i.isHiatus).length;
-  const completedCount = state.scannedItems.filter(i => i.isCompleted).length;
-
-  elements.countAll.textContent = allCount;
-  elements.countReleasing.textContent = releasingCount;
-  elements.countHiatus.textContent = hiatusCount;
-  elements.countCompleted.textContent = completedCount;
-}
-
-/**
- * Render the Webtoon Diff list
+ * Render the Webtoon Diff list (Clean single list)
  */
 function renderWebtoonList() {
   if (state.scannedItems.length === 0) {
@@ -385,44 +312,19 @@ function renderWebtoonList() {
   elements.resultsSection.classList.remove('hidden');
   elements.bottomBar.classList.remove('hidden');
 
-  updateCategoryCounts();
-
   elements.webtoonList.innerHTML = '';
 
-  const displayItems = getFilteredItems();
-  const currentTabEligible = displayItems.filter(i => i.anilistData && i.anilistData.mediaId);
-  const currentTabSelected = currentTabEligible.filter(i => i.selected);
+  let selectedCount = 0;
+  let eligibleCount = 0;
 
-  // Global total selected count across all tabs
-  const totalSelectedCount = state.scannedItems.filter(i => i.selected && i.anilistData?.mediaId).length;
-
-  if (displayItems.length === 0) {
-    elements.webtoonList.innerHTML = `
-      <div class="empty-state" style="margin-top: 14px; padding: 20px;">
-        <p style="color: var(--text-muted); font-size: 12px;">이 분류에 해당하는 웹툰이 없습니다.</p>
-      </div>
-    `;
-  }
-
-  displayItems.forEach((item) => {
-    // Find index in master scannedItems
-    const masterIndex = state.scannedItems.indexOf(item);
-
+  state.scannedItems.forEach((item, masterIndex) => {
     const card = document.createElement('div');
-    const isHiatusClass = item.isHiatus ? 'card-hiatus' : '';
-    const isCompletedClass = item.isCompleted ? 'card-completed' : '';
-    card.className = `webtoon-card ${!item.anilistData ? 'unmatched' : ''} ${!item.needsSync ? 'up-to-date' : ''} ${isHiatusClass} ${isCompletedClass}`.trim();
+    card.className = `webtoon-card ${!item.anilistData ? 'unmatched' : ''} ${!item.needsSync ? 'up-to-date' : ''}`.trim();
 
-    // Tags
-    let tagHtml = '';
-    if (item.isCompleted) {
-      tagHtml += `<span class="tag-badge tag-completed">✅ 완결</span>`;
-    }
-    if (item.isHiatus) {
-      tagHtml += `<span class="tag-badge tag-hiatus">⏸️ 휴재</span>`;
-    }
+    if (item.selected) selectedCount++;
+    if (item.anilistData) eligibleCount++;
 
-    // Progress Badge (supports direct editing via ✏️ button)
+    // Progress Badge with direct edit button
     let progressHtml = '';
     const editBtnHtml = `<button class="btn-inline-edit-ep" data-index="${masterIndex}" title="회차 직접 수정">✏️ ${item.episodeNo}화</button>`;
 
@@ -430,22 +332,16 @@ function renderWebtoonList() {
       const alProg = item.anilistData.currentProgress;
       const diff = item.episodeNo - alProg;
 
-      if (item.isHiatus && elements.chkHiatus.checked) {
-        progressHtml = `
-          <span class="progress-pill pill-hiatus">
-            ⏸️ PAUSED 전환 예정 · ${editBtnHtml}
-          </span>
-        `;
-      } else if (item.isCompleted && elements.chkCompleted.checked) {
-        progressHtml = `
-          <span class="progress-pill pill-completed">
-            ✅ COMPLETED 전환 예정 · ${editBtnHtml}
-          </span>
-        `;
-      } else if (diff > 0) {
+      if (diff > 0) {
         progressHtml = `
           <span class="progress-pill pill-diff">
             AniList ${alProg}화 ➔ ${editBtnHtml} (+${diff}화)
+          </span>
+        `;
+      } else if (diff < 0) {
+        progressHtml = `
+          <span class="progress-pill pill-diff">
+            AniList ${alProg}화 ➔ ${editBtnHtml} (${diff}화)
           </span>
         `;
       } else {
@@ -458,7 +354,7 @@ function renderWebtoonList() {
     } else {
       progressHtml = `
         <span class="progress-pill pill-synced">
-          네이버 회차: ${editBtnHtml}
+          네이버 최근 본 회차: ${editBtnHtml}
         </span>
       `;
     }
@@ -490,7 +386,6 @@ function renderWebtoonList() {
       <div class="card-content">
         <div class="card-title-row">
           <span class="card-title" title="${item.titleName}">${item.titleName}</span>
-          ${tagHtml}
         </div>
         <div class="card-progress-row">
           ${progressHtml}
@@ -505,12 +400,12 @@ function renderWebtoonList() {
   });
 
   // Update counts
-  elements.selectedCount.textContent = currentTabSelected.length;
-  elements.currentTabCount.textContent = currentTabEligible.length;
-  elements.chkSelectAll.checked = currentTabEligible.length > 0 && currentTabSelected.length === currentTabEligible.length;
+  elements.selectedCount.textContent = selectedCount;
+  elements.totalCount.textContent = state.scannedItems.length;
+  elements.chkSelectAll.checked = eligibleCount > 0 && selectedCount === eligibleCount;
 
-  elements.btnBatchSync.disabled = totalSelectedCount === 0;
-  elements.btnBatchSyncText.textContent = `선택한 ${totalSelectedCount}개 웹툰 AniList에 일괄 동기화`;
+  elements.btnBatchSync.disabled = selectedCount === 0;
+  elements.btnBatchSyncText.textContent = `선택한 ${selectedCount}개 웹툰 AniList에 일괄 동기화 (Reading)`;
 
   // Attach card event listeners
   document.querySelectorAll('.chk-item').forEach(chk => {
@@ -641,7 +536,7 @@ async function applyMapping(anilistMedia) {
 }
 
 /**
- * Handle Batch Sync
+ * Handle Batch Sync - unconditionally sync as CURRENT (Reading)
  */
 async function handleBatchSync() {
   const selectedItems = state.scannedItems.filter(item => item.selected && item.anilistData?.mediaId);
@@ -660,13 +555,8 @@ async function handleBatchSync() {
     elements.btnBatchSyncText.textContent = `동기화 진행 중 (${i + 1}/${selectedItems.length})...`;
 
     try {
-      // Determine Status
-      let targetStatus = 'CURRENT';
-      if (item.isCompleted && elements.chkCompleted.checked) {
-        targetStatus = 'COMPLETED';
-      } else if (item.isHiatus && elements.chkHiatus.checked) {
-        targetStatus = 'PAUSED';
-      }
+      // Unconditionally sync as CURRENT (Reading)
+      const targetStatus = 'CURRENT';
 
       await AniListService.saveMediaListEntry(
         {
@@ -692,12 +582,12 @@ async function handleBatchSync() {
   }
 
   elements.btnBatchSync.disabled = false;
-  elements.btnBatchSyncText.textContent = '선택한 웹툰 AniList에 일괄 동기화';
+  elements.btnBatchSyncText.textContent = '선택한 웹툰 AniList에 일괄 동기화 (Reading)';
 
   renderWebtoonList();
 
   if (failCount === 0) {
-    showToast(`🎉 총 ${successCount}개 웹툰이 AniList에 완벽히 동기화되었습니다!`);
+    showToast(`🎉 총 ${successCount}개 웹툰이 AniList에 Reading 상태로 완벽히 동기화되었습니다!`);
   } else {
     showToast(`동기화 완료: ${successCount}개 성공, ${failCount}개 실패`);
   }
