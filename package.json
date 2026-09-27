@@ -1,0 +1,19 @@
+{
+  "name": "nw_anilist",
+  "version": "1.0.0",
+  "description": "Naver Webtoon to AniList Manga Tracker & Sync Extension",
+  "main": "src/background/service_worker.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [
+    "naver-webtoon",
+    "anilist",
+    "tracker",
+    "scrobbler",
+    "manhwa",
+    "webtoon"
+  ],
+  "author": "lee-gangjin",
+  "license": "MIT"
+}

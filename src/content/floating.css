@@ -1,0 +1,89 @@
+/* nw_anilist - Viewer Floating Badge Styles */
+.nw-floating-container {
+  position: fixed;
+  bottom: 24px;
+  right: 24px;
+  z-index: 999999;
+  font-family: -apple-system, BlinkMacSystemFont, "Pretendard", "Segoe UI", Roboto, sans-serif;
+  user-select: none;
+}
+
+.nw-badge {
+  background: rgba(14, 18, 23, 0.92);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5), 0 0 16px rgba(2, 169, 255, 0.15);
+  backdrop-filter: blur(12px);
+  border-radius: 9999px;
+  padding: 6px 14px 6px 10px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+  color: #f0f4f8;
+}
+
+.nw-badge:hover {
+  transform: translateY(-2px);
+  border-color: rgba(2, 169, 255, 0.4);
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.6), 0 0 20px rgba(0, 220, 100, 0.25);
+}
+
+.nw-badge-icon {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+  font-weight: 900;
+  background: linear-gradient(135deg, #00dc64, #02a9ff);
+  color: #0b1117;
+  flex-shrink: 0;
+}
+
+.nw-badge-text {
+  font-size: 12px;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.nw-status-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #10b981;
+  box-shadow: 0 0 8px #10b981;
+}
+
+.nw-status-dot.syncing {
+  background: #02a9ff;
+  box-shadow: 0 0 8px #02a9ff;
+  animation: pulse 1s infinite alternate;
+}
+
+.nw-status-dot.unmatched {
+  background: #f59e0b;
+  box-shadow: 0 0 8px #f59e0b;
+}
+
+@keyframes pulse {
+  from { opacity: 0.4; }
+  to { opacity: 1; }
+}
+
+.nw-badge-title {
+  max-width: 150px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: #9aa8b6;
+}
+
+.nw-badge-ep {
+  color: #00dc64;
+  font-weight: 700;
+}

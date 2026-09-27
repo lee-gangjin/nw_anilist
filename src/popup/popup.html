@@ -1,0 +1,186 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>네웹 ➡️ AniList 트래커</title>
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <div class="app-container">
+    <!-- Header -->
+    <header class="app-header">
+      <div class="brand">
+        <div class="brand-logo">
+          <span class="logo-naver">N</span>
+          <span class="logo-arrow">➔</span>
+          <span class="logo-anilist">AL</span>
+        </div>
+        <div class="brand-text">
+          <h1 class="brand-title">네웹 <span>AniList</span></h1>
+          <span class="version-tag">v1.0.0</span>
+        </div>
+      </div>
+
+      <div class="user-profile" id="userProfileArea">
+        <button id="btnLogin" class="btn-login-trigger">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4M10 17l5-5-5-5M15 12H3"/></svg>
+          AniList 연동
+        </button>
+        <div id="userInfo" class="user-info hidden">
+          <img id="userAvatar" class="user-avatar" src="" alt="Avatar">
+          <span id="userName" class="user-name"></span>
+          <button id="btnLogout" class="btn-icon" title="로그아웃">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9"/></svg>
+          </button>
+        </div>
+      </div>
+    </header>
+
+    <!-- Auth Setup Banner (if not logged in) -->
+    <section id="authNotice" class="auth-banner hidden">
+      <div class="auth-banner-content">
+        <div class="auth-icon">🔑</div>
+        <div class="auth-desc">
+          <strong>AniList 계정 연결 필요</strong>
+          <p>내 만화 보관함과 동기화하려면 먼저 AniList 토큰을 연결해 주세요.</p>
+        </div>
+      </div>
+      <div class="auth-actions">
+        <button id="btnOpenAuthUrl" class="btn btn-secondary btn-sm">1. 토큰 발급 페이지 열기</button>
+        <button id="btnEnterToken" class="btn btn-primary btn-sm">2. 토큰 입력하기</button>
+      </div>
+    </section>
+
+    <!-- Token Input Modal -->
+    <div id="tokenModal" class="modal-overlay hidden">
+      <div class="modal-box">
+        <div class="modal-header">
+          <h3>AniList 토큰 연결</h3>
+          <button id="btnCloseTokenModal" class="btn-close">&times;</button>
+        </div>
+        <div class="modal-body">
+          <p class="modal-guide">
+            아래 버튼을 눌러 승인(Authorize) 후 주소창의 <code>access_token=...</code> 부분을 복사하거나, 발급받은 Personal Access Token을 붙여넣으세요.
+          </p>
+          <div class="token-helper-btn">
+            <a id="linkGetToken" href="https://anilist.co/api/v2/oauth/authorize?client_id=24536&response_type=token" target="_blank" class="btn btn-outline btn-full">
+              🔗 AniList 공식 토큰 발급 페이지 열기
+            </a>
+          </div>
+          <div class="input-group">
+            <label for="inputToken">Access Token</label>
+            <textarea id="inputToken" rows="3" placeholder="여기에 토큰을 붙여넣으세요..."></textarea>
+          </div>
+          <div id="tokenError" class="error-msg hidden"></div>
+        </div>
+        <div class="modal-footer">
+          <button id="btnSaveToken" class="btn btn-primary btn-full">연결 완료</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Main Controls -->
+    <section class="action-panel">
+      <button id="btnScanRecent" class="btn btn-hero">
+        <svg class="hero-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"/></svg>
+        <span>네이버 최근 본 웹툰 스캔</span>
+      </button>
+
+      <!-- Advanced Sync Options -->
+      <div class="options-drawer">
+        <div class="option-row">
+          <label class="switch-label">
+            <input type="checkbox" id="chkCompleted" checked>
+            <span class="slider"></span>
+            <span class="option-text">
+              완결작은 <strong>'COMPLETED (다 읽음)'</strong>으로 자동 등록
+            </span>
+          </label>
+        </div>
+        <div class="option-row">
+          <label class="switch-label">
+            <input type="checkbox" id="chkHiatus" checked>
+            <span class="slider"></span>
+            <span class="option-text">
+              휴재작을 최신화까지 <strong>'COMPLETED'</strong>로 표시
+            </span>
+          </label>
+        </div>
+      </div>
+    </section>
+
+    <!-- Scan Status & Progress -->
+    <div id="scanStatus" class="scan-status hidden">
+      <div class="status-spinner"></div>
+      <span id="statusMessage">네이버 웹툰 감상 기록을 불러오는 중...</span>
+    </div>
+
+    <!-- Webtoon Diff / Sync List -->
+    <section id="resultsSection" class="results-section hidden">
+      <div class="results-header">
+        <div class="select-all-wrap">
+          <label class="checkbox-container">
+            <input type="checkbox" id="chkSelectAll" checked>
+            <span class="checkmark"></span>
+            <span class="label-text">전체 선택 (<span id="selectedCount">0</span>/<span id="totalCount">0</span>)</span>
+          </label>
+        </div>
+        <div class="badge-filter">
+          <span id="filterSummary" class="filter-chip">업데이트 대기</span>
+        </div>
+      </div>
+
+      <div id="webtoonList" class="webtoon-list">
+        <!-- Webtoon Cards will be dynamically inserted here -->
+      </div>
+    </section>
+
+    <!-- Empty State -->
+    <div id="emptyState" class="empty-state">
+      <div class="empty-icon">📖</div>
+      <h3>최근 감상한 웹툰을 불러와 보세요</h3>
+      <p>상단의 <strong>[네이버 최근 본 웹툰 스캔]</strong> 버튼을 누르면 PC 및 모바일 앱에서 본 기록을 즉시 조회하여 AniList와 비교합니다.</p>
+    </div>
+
+    <!-- Sticky Bottom Sync Action Bar -->
+    <footer id="bottomBar" class="bottom-action-bar hidden">
+      <button id="btnBatchSync" class="btn btn-sync btn-full">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>
+        <span id="btnBatchSyncText">선택한 웹툰 AniList에 일괄 동기화</span>
+      </button>
+    </footer>
+
+    <!-- Search / Mapping Modal -->
+    <div id="searchModal" class="modal-overlay hidden">
+      <div class="modal-box modal-search">
+        <div class="modal-header">
+          <div>
+            <h3>AniList 작품 매칭</h3>
+            <p id="searchModalSubtitle" class="sub-text">네이버 웹툰: <strong id="searchTargetNaverTitle"></strong></p>
+          </div>
+          <button id="btnCloseSearchModal" class="btn-close">&times;</button>
+        </div>
+        <div class="modal-body">
+          <div class="search-box">
+            <input type="text" id="inputSearchQuery" placeholder="작품명 검색 (한국어 또는 영문)...">
+            <button id="btnExecuteSearch" class="btn btn-secondary">검색</button>
+          </div>
+          <div id="searchLoading" class="search-loading hidden">
+            <div class="status-spinner"></div>
+            <span>AniList DB 검색 중...</span>
+          </div>
+          <div id="searchResultsList" class="search-results-list">
+            <!-- Search items inserted dynamically -->
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Toast Notification -->
+    <div id="toastNotification" class="toast hidden"></div>
+  </div>
+
+  <script type="module" src="popup.js"></script>
+</body>
+</html>

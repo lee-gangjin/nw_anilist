@@ -1,0 +1,48 @@
+{
+  "manifest_version": 3,
+  "name": "네웹 ➡️ AniList 만화 트래커",
+  "short_name": "NW AniList",
+  "version": "1.0.0",
+  "description": "네이버 웹툰 감상 기록을 AniList 만화 트래커에 원클릭/자동으로 동기화합니다. 완결/휴재작 처리 지원.",
+  "permissions": [
+    "storage",
+    "tabs"
+  ],
+  "host_permissions": [
+    "https://*.naver.com/*",
+    "https://graphql.anilist.co/*",
+    "https://anilist.co/*"
+  ],
+  "action": {
+    "default_popup": "src/popup/popup.html",
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "48": "icons/icon48.png",
+      "128": "icons/icon128.png"
+    },
+    "default_title": "네웹 ➡️ AniList 동기화"
+  },
+  "background": {
+    "service_worker": "src/background/service_worker.js",
+    "type": "module"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "https://comic.naver.com/webtoon/detail*"
+      ],
+      "js": [
+        "src/content/content_script.js"
+      ],
+      "css": [
+        "src/content/floating.css"
+      ],
+      "run_at": "document_end"
+    }
+  ],
+  "icons": {
+    "16": "icons/icon16.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  }
+}
