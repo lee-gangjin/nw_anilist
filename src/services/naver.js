@@ -10,8 +10,8 @@ export const NaverWebtoonService = {
    */
   async fetchRecentWebtoons() {
     try {
-      // Fetch the recent webtoon mypage
-      const response = await fetch('https://comic.naver.com/mypage/recentWebtoon', {
+      // Fetch the recent webtoon mypage (comic.naver.com/mypage/recently)
+      const response = await fetch('https://comic.naver.com/mypage/recently', {
         method: 'GET',
         credentials: 'include',
         headers: {
@@ -150,8 +150,8 @@ export const NaverWebtoonService = {
     const doc = parser.parseFromString(html, 'text/html');
     const items = [];
 
-    // Query list items
-    const elements = doc.querySelectorAll('li[class*="EpisodeListList__item"], li[class*="item"], div[class*="Poster__poster"]');
+    // Query list items (supports both desktop card view and list view)
+    const elements = doc.querySelectorAll('li, div[class*="Poster"], div[class*="item"], div[class*="Card"]');
 
     elements.forEach(el => {
       const link = el.querySelector('a[href*="titleId"]');
@@ -164,10 +164,13 @@ export const NaverWebtoonService = {
 
       if (!titleId) return;
 
-      const titleEl = el.querySelector('[class*="title"], strong, h3, .name');
+      // Skip duplicates if already added
+      if (items.some(it => it.titleId === titleId)) return;
+
+      const titleEl = el.querySelector('[class*="title"], [class*="name"], strong, h3, h4');
       const titleName = titleEl ? titleEl.textContent.trim() : '';
 
-      const epEl = el.querySelector('[class*="sub_title"], [class*="desc"], .text');
+      const epEl = el.querySelector('[class*="sub_title"], [class*="desc"], [class*="episode"], .text');
       const epText = epEl ? epEl.textContent.trim() : '';
 
       let episodeNo = parseInt(no, 10);
