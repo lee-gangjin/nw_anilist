@@ -12,7 +12,7 @@ const STORAGE_KEYS = {
 
 const DEFAULT_SETTINGS = {
   completedHandling: 'COMPLETED', // 'COMPLETED' or 'CURRENT'
-  hiatusHandling: 'COMPLETED',    // 'COMPLETED' or 'PAUSED' or 'CURRENT'
+  hiatusHandling: 'PAUSED',       // 'PAUSED' (AniList 일시 중단)
   autoScrollSync: true,          // Sync when scrolling 80% in viewer
   minScrollPercent: 80,
   syncNotification: true

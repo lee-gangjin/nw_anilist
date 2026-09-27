@@ -597,6 +597,16 @@ body {
   background: rgba(0, 220, 100, 0.15);
   color: var(--naver-green);
 }
+.pill-hiatus {
+  background: rgba(245, 158, 11, 0.15);
+  color: #fbbf24;
+  border: 1px solid rgba(245, 158, 11, 0.25);
+}
+.pill-completed {
+  background: rgba(16, 185, 129, 0.15);
+  color: #34d399;
+  border: 1px solid rgba(16, 185, 129, 0.25);
+}
 .pill-synced {
   background: rgba(255, 255, 255, 0.08);
   color: var(--text-muted);

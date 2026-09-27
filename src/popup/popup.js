@@ -85,7 +85,7 @@ async function loadInitialState() {
 
   // Apply settings to checkboxes
   elements.chkCompleted.checked = state.settings.completedHandling === 'COMPLETED';
-  elements.chkHiatus.checked = state.settings.hiatusHandling === 'COMPLETED';
+  elements.chkHiatus.checked = state.settings.hiatusHandling === 'PAUSED';
 
   // Render Auth State
   updateAuthUI();
@@ -128,12 +128,14 @@ function setupEventListeners() {
     const val = elements.chkCompleted.checked ? 'COMPLETED' : 'CURRENT';
     await StorageService.setSettings({ completedHandling: val });
     state.settings.completedHandling = val;
+    renderWebtoonList();
   });
 
   elements.chkHiatus.addEventListener('change', async () => {
-    const val = elements.chkHiatus.checked ? 'COMPLETED' : 'CURRENT';
+    const val = elements.chkHiatus.checked ? 'PAUSED' : 'CURRENT';
     await StorageService.setSettings({ hiatusHandling: val });
     state.settings.hiatusHandling = val;
+    renderWebtoonList();
   });
 
   // Scan Recent Button
@@ -420,7 +422,19 @@ function renderWebtoonList() {
       const alProg = item.anilistData.currentProgress;
       const diff = item.episodeNo - alProg;
 
-      if (diff > 0) {
+      if (item.isHiatus && elements.chkHiatus.checked) {
+        progressHtml = `
+          <span class="progress-pill pill-hiatus">
+            ⏸️ AniList PAUSED (일시 중단) 전환 예정 · ${item.episodeNo}화
+          </span>
+        `;
+      } else if (item.isCompleted && elements.chkCompleted.checked) {
+        progressHtml = `
+          <span class="progress-pill pill-completed">
+            ✅ AniList COMPLETED (다 읽음) 전환 예정 · ${item.episodeNo}화
+          </span>
+        `;
+      } else if (diff > 0) {
         progressHtml = `
           <span class="progress-pill pill-diff">
             AniList ${alProg}화 ➔ 네이버 ${item.episodeNo}화 (+${diff}화)
@@ -621,7 +635,7 @@ async function handleBatchSync() {
       if (item.isCompleted && elements.chkCompleted.checked) {
         targetStatus = 'COMPLETED';
       } else if (item.isHiatus && elements.chkHiatus.checked) {
-        targetStatus = 'COMPLETED';
+        targetStatus = 'PAUSED';
       }
 
       await AniListService.saveMediaListEntry(
