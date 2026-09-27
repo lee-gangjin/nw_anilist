@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "네웹 ➡️ AniList 만화 트래커",
   "short_name": "NW AniList",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "description": "네이버 웹툰 감상 기록을 AniList 만화 트래커에 원클릭/자동으로 동기화합니다.",
   "permissions": [
     "storage",

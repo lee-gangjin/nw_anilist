@@ -2,7 +2,7 @@
  * nw_anilist - Background Service Worker
  */
 
-import { StorageService } from '../services/storage.js';
+import { StorageService, getMediaListStatus } from '../services/storage.js';
 import { AniListService } from '../services/anilist.js';
 
 chrome.runtime.onInstalled.addListener((details) => {
@@ -55,7 +55,7 @@ async function handleSingleSync({ titleId, episodeNo, webtoonTitle }) {
   }
 
   const settings = await StorageService.getSettings();
-  const status = 'CURRENT';
+  const status = getMediaListStatus(episodeNo, settings.planningThreshold || 5);
 
   // Save to AniList
   const updatedEntry = await AniListService.saveMediaListEntry(

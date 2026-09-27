@@ -14,8 +14,21 @@ const STORAGE_KEYS = {
 const DEFAULT_SETTINGS = {
   autoScrollSync: true,          // Sync when scrolling 80% in viewer
   minScrollPercent: 80,
-  syncNotification: true
+  syncNotification: true,
+  planningThreshold: 5           // 5화 이하일 때 Planning(읽을 예정)으로 등록, 6화 이상은 Reading(CURRENT)
 };
+
+/**
+ * Determine AniList MediaListStatus based on episode progress
+ * 5화 이하: PLANNING, 6화 이상: CURRENT
+ * @param {number|string} episodeNo
+ * @param {number} threshold
+ * @returns {'PLANNING'|'CURRENT'}
+ */
+export function getMediaListStatus(episodeNo, threshold = 5) {
+  return Number(episodeNo) <= threshold ? 'PLANNING' : 'CURRENT';
+}
+
 
 export const StorageService = {
   /**

@@ -2,7 +2,7 @@
  * nw_anilist - Popup Controller
  */
 
-import { StorageService } from '../services/storage.js';
+import { StorageService, getMediaListStatus } from '../services/storage.js';
 import { AniListService, ANILIST_AUTH_URL } from '../services/anilist.js';
 import { NaverWebtoonService } from '../services/naver.js';
 
@@ -264,9 +264,13 @@ async function handleScanRecent() {
       const currentAL = anilistData ? Number(anilistData.currentProgress) : 0;
       const currentStatus = anilistData ? anilistData.currentStatus : 'NOT_IN_LIST';
 
-      // Has this exact episode (or newer) already been synced without change?
-      const isAlreadySyncedInAniList = currentStatus === 'CURRENT' && currentAL >= item.episodeNo;
-      const isAlreadySyncedLocally = currentStatus === 'CURRENT' && lastSyncedEp >= item.episodeNo;
+      const threshold = state.settings?.planningThreshold || 5;
+      const targetStatus = getMediaListStatus(item.episodeNo, threshold);
+
+      // Has this exact episode (or newer) and matching status already been synced?
+      const isStatusMatch = currentStatus === targetStatus;
+      const isAlreadySyncedInAniList = isStatusMatch && currentAL >= item.episodeNo;
+      const isAlreadySyncedLocally = isStatusMatch && lastSyncedEp >= item.episodeNo;
       const isUnchanged = (isAlreadySyncedInAniList || isAlreadySyncedLocally) && currentStatus !== 'NOT_IN_LIST';
 
       const needsSync = !isUnchanged;
@@ -333,6 +337,12 @@ function renderWebtoonList() {
     if (item.selected) selectedCount++;
     if (item.anilistData) eligibleCount++;
 
+    const threshold = state.settings?.planningThreshold || 5;
+    const targetStatus = getMediaListStatus(item.episodeNo, threshold);
+    const isPlanning = targetStatus === 'PLANNING';
+    const statusLabel = isPlanning ? 'Planning' : 'Reading';
+    const statusBadge = `<span class="target-status-badge ${isPlanning ? 'planning' : 'reading'}">${statusLabel}</span>`;
+
     // Progress Badge with direct edit button
     let progressHtml = '';
     const editBtnHtml = `<button class="btn-inline-edit-ep" data-index="${masterIndex}" title="회차 직접 수정">✏️ ${item.episodeNo}화</button>`;
@@ -344,32 +354,32 @@ function renderWebtoonList() {
       if (!item.needsSync) {
         progressHtml = `
           <span class="progress-pill pill-synced">
-            ✓ 최신 상태 (${editBtnHtml} · 변경없음)
+            ✓ 최신 상태 (${editBtnHtml} · ${statusLabel})
           </span>
         `;
       } else if (diff > 0) {
         progressHtml = `
           <span class="progress-pill pill-diff">
-            AniList ${alProg}화 ➔ ${editBtnHtml} (+${diff}화 신규)
+            AniList ${alProg}화 ➔ ${editBtnHtml} (+${diff}화 신규 · ${statusLabel})
           </span>
         `;
       } else if (diff < 0) {
         progressHtml = `
           <span class="progress-pill pill-diff">
-            AniList ${alProg}화 ➔ ${editBtnHtml} (${diff}화)
+            AniList ${alProg}화 ➔ ${editBtnHtml} (${diff}화 · ${statusLabel})
           </span>
         `;
       } else {
         progressHtml = `
-          <span class="progress-pill pill-synced">
-            ✓ 최신 상태 (${editBtnHtml} · 변경없음)
+          <span class="progress-pill pill-diff">
+            상태 갱신: ${item.anilistData.currentStatus} ➔ ${statusLabel} (${editBtnHtml})
           </span>
         `;
       }
     } else {
       progressHtml = `
         <span class="progress-pill pill-synced">
-          네이버 최근 본 회차: ${editBtnHtml}
+          네이버 최근 본 회차: ${editBtnHtml} (${statusLabel})
         </span>
       `;
     }
@@ -401,6 +411,7 @@ function renderWebtoonList() {
       <div class="card-content">
         <div class="card-title-row">
           <span class="card-title" title="${item.titleName}">${item.titleName}</span>
+          ${statusBadge}
         </div>
         <div class="card-progress-row">
           ${progressHtml}
@@ -420,7 +431,7 @@ function renderWebtoonList() {
   elements.chkSelectAll.checked = eligibleCount > 0 && selectedCount === eligibleCount;
 
   elements.btnBatchSync.disabled = selectedCount === 0;
-  elements.btnBatchSyncText.textContent = `선택한 ${selectedCount}개 웹툰 AniList에 일괄 동기화 (Reading)`;
+  elements.btnBatchSyncText.textContent = `선택한 ${selectedCount}개 웹툰 AniList에 일괄 동기화`;
 
   // Attach card event listeners
   document.querySelectorAll('.chk-item').forEach(chk => {
@@ -571,8 +582,8 @@ async function handleBatchSync() {
     elements.btnBatchSyncText.textContent = `동기화 진행 중 (${i + 1}/${selectedItems.length})...`;
 
     try {
-      // Unconditionally sync as CURRENT (Reading)
-      const targetStatus = 'CURRENT';
+      const threshold = state.settings?.planningThreshold || 5;
+      const targetStatus = getMediaListStatus(item.episodeNo, threshold);
 
       await AniListService.saveMediaListEntry(
         {
@@ -606,12 +617,12 @@ async function handleBatchSync() {
   }
 
   elements.btnBatchSync.disabled = false;
-  elements.btnBatchSyncText.textContent = '선택한 웹툰 AniList에 일괄 동기화 (Reading)';
+  elements.btnBatchSyncText.textContent = '선택한 웹툰 AniList에 일괄 동기화';
 
   renderWebtoonList();
 
   if (failCount === 0) {
-    showToast(`🎉 총 ${successCount}개 웹툰이 AniList에 Reading 상태로 완벽히 동기화되었습니다!`);
+    showToast(`🎉 총 ${successCount}개 웹툰이 AniList에 성공적으로 동기화되었습니다! (5화 이하: Planning / 6화 이상: Reading)`);
   } else {
     showToast(`동기화 완료: ${successCount}개 성공, ${failCount}개 실패`);
   }
