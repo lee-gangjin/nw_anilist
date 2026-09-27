@@ -10,23 +10,21 @@ export const NaverWebtoonService = {
    */
   async fetchRecentWebtoons() {
     try {
-      // 1. Find if user already has comic.naver.com open
+      // 1. Check if user already has the exact '최근 본' tab open (comic.naver.com/mypage/recently)
       const tabs = await new Promise((resolve) => {
-        chrome.tabs.query({ url: '*://comic.naver.com/*' }, (result) => {
+        chrome.tabs.query({ url: '*://comic.naver.com/mypage/recently*' }, (result) => {
           resolve(result || []);
         });
       });
 
       if (tabs.length > 0) {
-        // Prefer mypage tab if open, otherwise the first comic.naver.com tab
-        const mypageTab = tabs.find(t => t.url?.includes('/mypage')) || tabs[0];
-        const extracted = await this._extractFromTab(mypageTab.id);
+        const extracted = await this._extractFromTab(tabs[0].id);
         if (extracted && extracted.length > 0) {
           return extracted;
         }
       }
 
-      // 2. If no tab found or tab yielded 0 items, temporarily open mypage in background tab
+      // 2. Always scan the official '최근 본' page via a silent background tab
       return await this._scanViaBackgroundTab('https://comic.naver.com/mypage/recently');
     } catch (err) {
       console.error('[NaverWebtoonService] fetchRecentWebtoons error:', err);
@@ -60,44 +58,47 @@ export const NaverWebtoonService = {
    * Temporarily open a background tab, wait for React to mount, and extract DOM
    */
   async _scanViaBackgroundTab(url) {
-    return new Promise((resolve, reject) => {
+    return new Promise((resolve) => {
       chrome.tabs.create({ url, active: false }, (newTab) => {
         if (!newTab || !newTab.id) {
-          reject(new Error('네이버 탭을 생성할 수 없습니다.'));
+          resolve([]);
           return;
         }
 
         const tabId = newTab.id;
         let attempts = 0;
-        const maxAttempts = 6;
+        const maxAttempts = 12; // up to 6 seconds polling
+        let isDone = false;
 
-        // Poll for DOM content once tab finishes loading
-        const listener = (updatedTabId, changeInfo) => {
-          if (updatedTabId === tabId && changeInfo.status === 'complete') {
-            chrome.tabs.onUpdated.removeListener(listener);
-
-            const interval = setInterval(async () => {
-              attempts++;
-              const items = await this._extractFromTab(tabId);
-              
-              if ((items && items.length > 0) || attempts >= maxAttempts) {
-                clearInterval(interval);
-                // Close the background tab
-                chrome.tabs.remove(tabId, () => {});
-                resolve(items || []);
-              }
-            }, 600);
+        const checkAndExtract = async () => {
+          if (isDone) return;
+          attempts++;
+          const items = await this._extractFromTab(tabId);
+          if (items && items.length > 0) {
+            isDone = true;
+            clearInterval(interval);
+            chrome.tabs.remove(tabId, () => {});
+            resolve(items);
+          } else if (attempts >= maxAttempts) {
+            isDone = true;
+            clearInterval(interval);
+            chrome.tabs.remove(tabId, () => {});
+            resolve(items || []);
           }
         };
 
-        chrome.tabs.onUpdated.addListener(listener);
+        // Start polling after slight delay for initial DOM/React mount
+        const interval = setInterval(checkAndExtract, 500);
 
-        // Safety timeout (10 seconds)
+        // Safety timeout (8 seconds)
         setTimeout(() => {
-          chrome.tabs.onUpdated.removeListener(listener);
-          chrome.tabs.remove(tabId, () => {});
-          resolve([]);
-        }, 10000);
+          if (!isDone) {
+            isDone = true;
+            clearInterval(interval);
+            chrome.tabs.remove(tabId, () => {});
+            resolve([]);
+          }
+        }, 8000);
       });
     });
   }
@@ -105,11 +106,7 @@ export const NaverWebtoonService = {
 
 /**
  * In-Page Extraction Function (injected into comic.naver.com tab)
- * Reads React-rendered DOM elements (Mypage recently, favorite, or main)
- */
-/**
- * In-Page Extraction Function (injected into comic.naver.com tab)
- * Reads React-rendered DOM elements (Mypage recently, favorite, or main)
+ * Reads React-rendered DOM elements (Mypage recently)
  */
 function inPageExtractor() {
   const items = [];
