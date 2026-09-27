@@ -375,6 +375,65 @@ body {
   margin-top: 14px;
 }
 
+/* Category Tabs (Segmented Control) */
+.category-tabs {
+  display: flex;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  padding: 4px;
+  gap: 4px;
+  margin-bottom: 12px;
+}
+
+.tab-btn {
+  flex: 1;
+  background: transparent;
+  border: none;
+  color: var(--text-secondary);
+  font-size: 11px;
+  font-weight: 600;
+  padding: 6px 4px;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+  white-space: nowrap;
+}
+
+.tab-btn:hover {
+  color: var(--text-primary);
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.tab-btn.active {
+  background: rgba(255, 255, 255, 0.12);
+  color: #fff;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+}
+
+.tab-btn.tab-hiatus.active {
+  background: rgba(245, 158, 11, 0.2);
+  color: #fbbf24;
+  border: 1px solid rgba(245, 158, 11, 0.3);
+}
+
+.tab-btn.tab-completed.active {
+  background: rgba(16, 185, 129, 0.2);
+  color: #34d399;
+  border: 1px solid rgba(16, 185, 129, 0.3);
+}
+
+.tab-count {
+  font-size: 10px;
+  background: rgba(255, 255, 255, 0.08);
+  padding: 1px 5px;
+  border-radius: var(--radius-full);
+}
+
 .results-header {
   display: flex;
   justify-content: space-between;
@@ -458,8 +517,14 @@ body {
 .webtoon-card.unmatched {
   border-left: 3px solid #f59e0b;
 }
+.webtoon-card.card-hiatus {
+  border-left: 3px solid #fbbf24;
+}
+.webtoon-card.card-completed {
+  border-left: 3px solid #10b981;
+}
 .webtoon-card.up-to-date {
-  opacity: 0.65;
+  opacity: 0.7;
 }
 
 .card-select {

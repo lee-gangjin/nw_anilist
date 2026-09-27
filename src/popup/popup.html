@@ -118,16 +118,24 @@
 
     <!-- Webtoon Diff / Sync List -->
     <section id="resultsSection" class="results-section hidden">
+      <!-- Category Tabs (전체 / 연재 / 휴재 / 완결) -->
+      <div class="category-tabs" id="categoryTabs">
+        <button class="tab-btn active" data-filter="all">전체 <span id="countAll" class="tab-count">0</span></button>
+        <button class="tab-btn" data-filter="releasing">연재중 <span id="countReleasing" class="tab-count">0</span></button>
+        <button class="tab-btn tab-hiatus" data-filter="hiatus">⏸️ 휴재 <span id="countHiatus" class="tab-count">0</span></button>
+        <button class="tab-btn tab-completed" data-filter="completed">✅ 완결 <span id="countCompleted" class="tab-count">0</span></button>
+      </div>
+
       <div class="results-header">
         <div class="select-all-wrap">
           <label class="checkbox-container">
             <input type="checkbox" id="chkSelectAll" checked>
             <span class="checkmark"></span>
-            <span class="label-text">전체 선택 (<span id="selectedCount">0</span>/<span id="totalCount">0</span>)</span>
+            <span class="label-text">현재 탭 선택 (<span id="selectedCount">0</span>/<span id="currentTabCount">0</span>)</span>
           </label>
         </div>
         <div class="badge-filter">
-          <span id="filterSummary" class="filter-chip">업데이트 대기</span>
+          <span id="filterSummary" class="filter-chip">동기화 대기</span>
         </div>
       </div>
 
