@@ -161,11 +161,11 @@ function inPageExtractor() {
 
     if (!titleName || titleName.length < 2) return;
 
-    // 2) Episode Number Extraction (Crucial!)
+    // 2) Episode Number Extraction (Robust & Precise)
     let episodeNo = null;
 
-    // Priority A: Check all links in container for detail link with 'no' param (e.g. /webtoon/detail?titleId=...&no=62)
-    const detailLinks = container.querySelectorAll('a[href*="no="]');
+    // Priority 1: Check detail links that match THIS titleId (e.g. /webtoon/detail?titleId=790713&no=62)
+    const detailLinks = container.querySelectorAll(`a[href*="titleId=${titleId}"][href*="no="]`);
     for (const dLink of detailLinks) {
       const dHref = dLink.getAttribute('href') || '';
       const dParams = new URLSearchParams(dHref.split('?')[1] || '');
@@ -176,7 +176,27 @@ function inPageExtractor() {
       }
     }
 
-    // Priority B: Subtitle or Episode text element (e.g. "62화. 제목", "62화")
+    // Priority 2: In Mypage Favorite table, episode count is rendered in its own cell/column (e.g. 136, 324)
+    if (!episodeNo) {
+      const cells = container.querySelectorAll('td, span, div, em, p');
+      for (const cell of cells) {
+        // Skip elements that contain children, only inspect leaf or short text
+        if (cell.children.length === 0) {
+          const cellText = cell.textContent.trim();
+          // Check if exactly a pure number between 1 and 9999 (matches 136, 324)
+          // Exclude dates like 26.09.23 or times
+          if (/^\d{1,4}$/.test(cellText)) {
+            const num = parseInt(cellText, 10);
+            if (num > 0) {
+              episodeNo = num;
+              break;
+            }
+          }
+        }
+      }
+    }
+
+    // Priority 3: Subtitle or Episode text element with '화' (e.g. "62화. 제목", "62화")
     if (!episodeNo) {
       const epTextEl = container.querySelector('[class*="sub_title"], [class*="episode"], [class*="desc"], [class*="info"] span, em');
       if (epTextEl) {
@@ -187,20 +207,19 @@ function inPageExtractor() {
       }
     }
 
-    // Priority C: Entire container text regex search
+    // Priority 4: Regex search for "XX화" in container, safely ignoring author names (like Q10) and dates
     if (!episodeNo) {
       const containerText = container.innerText || container.textContent || '';
-      // Find patterns like "62화", "62 회", "제 62 화"
-      const epMatches = [...containerText.matchAll(/(?:제\s*)?(\d+)\s*(?:화|회|장|편)/g)];
+      // Explicitly match digits followed by '화/회/장/편'
+      const epMatches = [...containerText.matchAll(/(\d+)\s*(?:화|회|장|편)/g)];
       if (epMatches.length > 0) {
-        // Take the last or most prominent episode match (ignores year 2026, date numbers)
         episodeNo = parseInt(epMatches[0][1], 10);
       }
     }
 
-    // Fallback: If still nothing, check original link 'no' or default to 1
+    // Fallback: Default to 1
     if (!episodeNo) {
-      episodeNo = parseInt(urlParams.get('no'), 10) || 1;
+      episodeNo = 1;
     }
 
     // 3) Completion & Hiatus status

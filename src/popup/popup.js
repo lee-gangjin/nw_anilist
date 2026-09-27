@@ -422,8 +422,10 @@ function renderWebtoonList() {
       tagHtml += `<span class="tag-badge tag-hiatus">⏸️ 휴재</span>`;
     }
 
-    // Progress Badge
+    // Progress Badge (supports direct editing via ✏️ button)
     let progressHtml = '';
+    const editBtnHtml = `<button class="btn-inline-edit-ep" data-index="${masterIndex}" title="회차 직접 수정">✏️ ${item.episodeNo}화</button>`;
+
     if (item.anilistData) {
       const alProg = item.anilistData.currentProgress;
       const diff = item.episodeNo - alProg;
@@ -431,32 +433,32 @@ function renderWebtoonList() {
       if (item.isHiatus && elements.chkHiatus.checked) {
         progressHtml = `
           <span class="progress-pill pill-hiatus">
-            ⏸️ AniList PAUSED (일시 중단) 전환 예정 · ${item.episodeNo}화
+            ⏸️ PAUSED 전환 예정 · ${editBtnHtml}
           </span>
         `;
       } else if (item.isCompleted && elements.chkCompleted.checked) {
         progressHtml = `
           <span class="progress-pill pill-completed">
-            ✅ AniList COMPLETED (다 읽음) 전환 예정 · ${item.episodeNo}화
+            ✅ COMPLETED 전환 예정 · ${editBtnHtml}
           </span>
         `;
       } else if (diff > 0) {
         progressHtml = `
           <span class="progress-pill pill-diff">
-            AniList ${alProg}화 ➔ 네이버 ${item.episodeNo}화 (+${diff}화)
+            AniList ${alProg}화 ➔ ${editBtnHtml} (+${diff}화)
           </span>
         `;
       } else {
         progressHtml = `
           <span class="progress-pill pill-synced">
-            최신 상태 (${item.episodeNo}화)
+            최신 상태 (${editBtnHtml})
           </span>
         `;
       }
     } else {
       progressHtml = `
         <span class="progress-pill pill-synced">
-          네이버 최근 본 회차: ${item.episodeNo}화
+          네이버 회차: ${editBtnHtml}
         </span>
       `;
     }
@@ -523,6 +525,28 @@ function renderWebtoonList() {
     btn.addEventListener('click', (e) => {
       const idx = parseInt(e.target.dataset.index, 10);
       openSearchModal(state.scannedItems[idx]);
+    });
+  });
+
+  // Direct Episode Editing
+  document.querySelectorAll('.btn-inline-edit-ep').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const idx = parseInt(e.currentTarget.dataset.index, 10);
+      const item = state.scannedItems[idx];
+      const input = prompt(`'${item.titleName}' 동기화할 회차 번호를 입력하세요:`, item.episodeNo);
+      if (input !== null) {
+        const parsed = parseInt(input.trim(), 10);
+        if (!isNaN(parsed) && parsed > 0) {
+          item.episodeNo = parsed;
+          if (item.anilistData) {
+            item.needsSync = true;
+            item.selected = true;
+          }
+          renderWebtoonList();
+          showToast(`'${item.titleName}' 회차가 ${parsed}화로 변경되었습니다.`);
+        }
+      }
     });
   });
 }
