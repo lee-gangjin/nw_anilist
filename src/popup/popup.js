@@ -255,12 +255,14 @@ async function handleScanRecent() {
 
     const processedList = [];
 
-    for (const item of recentWebtoons) {
+    for (let i = 0; i < recentWebtoons.length; i++) {
+      const item = recentWebtoons[i];
       let mapping = state.mappings[item.titleId];
       let anilistData = null;
 
-      // Auto-search if no mapping exists yet
+      // Auto-search if no mapping exists yet (rate limited smoothly)
       if (!mapping) {
+        setLoadingStatus(true, `AniList 작품 매칭 중 (${i + 1}/${recentWebtoons.length}): ${item.titleName}`);
         try {
           const results = await AniListService.searchManga(item.titleName, 1);
           if (results && results.length > 0) {
@@ -274,8 +276,12 @@ async function handleScanRecent() {
             await StorageService.setMapping(item.titleId, mapping);
             state.mappings[item.titleId] = mapping;
           }
+          // Throttle searches to stay well under AniList's 90 req/min limit
+          await new Promise(r => setTimeout(r, 700));
         } catch (e) {
-          console.warn('Auto search failed for', item.titleName, e);
+          console.warn('Auto search skipped/rate limited for', item.titleName, e);
+          // Don't crash, let user manually match later
+          await new Promise(r => setTimeout(r, 1000));
         }
       }
 
@@ -653,8 +659,8 @@ async function handleBatchSync() {
       item.selected = false;
       successCount++;
 
-      // Small delay between requests to avoid rate limits
-      await new Promise(r => setTimeout(r, 250));
+      // Rate Limit 방어: 요청 간 800ms 안전 딜레이
+      await new Promise(r => setTimeout(r, 800));
     } catch (err) {
       console.error('Failed to sync item:', item.titleName, err);
       failCount++;

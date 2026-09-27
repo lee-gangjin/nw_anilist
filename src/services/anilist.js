@@ -12,7 +12,7 @@ export const AniListService = {
   /**
    * Execute GraphQL request
    */
-  async request(query, variables = {}, token = null) {
+  async request(query, variables = {}, token = null, retryCount = 0) {
     const headers = {
       'Content-Type': 'application/json',
       'Accept': 'application/json'
@@ -28,6 +28,22 @@ export const AniListService = {
         headers,
         body: JSON.stringify({ query, variables })
       });
+
+      // Handle 429 Too Many Requests (Rate Limit defense)
+      if (response.status === 429 && retryCount < 3) {
+        const retryAfter = parseInt(response.headers.get('Retry-After') || '2', 10);
+        const waitTime = Math.max(retryAfter, 2) * 1000 + 500;
+        console.warn(`[AniListService] Rate limited (429). Auto-waiting ${waitTime}ms before retry (${retryCount + 1}/3)...`);
+        await new Promise(r => setTimeout(r, waitTime));
+        return this.request(query, variables, token, retryCount + 1);
+      }
+
+      if (!response.ok) {
+        if (response.status === 429) {
+          throw new Error('요청 한도 초과 (Too Many Requests). 잠시 후 다시 시도해 주세요.');
+        }
+        throw new Error(`AniList 응답 오류 (HTTP ${response.status})`);
+      }
 
       const json = await response.json();
       if (json.errors && json.errors.length > 0) {
