@@ -11,6 +11,7 @@ const state = {
   auth: null,
   settings: null,
   mappings: {},
+  syncHistory: {}, // { [naverTitleId]: { episodeNo, syncedAt, mediaId } }
   scannedItems: [], // { titleId, titleName, episodeNo, episodeTitle, isCompleted, isHiatus, thumbnail, anilistData: { mediaId, title, currentProgress, status }, selected }
   activeSearchItem: null // item currently being manually searched/matched
 };
@@ -71,6 +72,7 @@ async function loadInitialState() {
   state.auth = await StorageService.getAuth();
   state.settings = await StorageService.getSettings();
   state.mappings = await StorageService.getMappings();
+  state.syncHistory = await StorageService.getSyncHistory();
 
   // Render Auth State
   updateAuthUI();
@@ -208,9 +210,10 @@ async function handleScanRecent() {
 
     setLoadingStatus(true, 'AniList 보관함과 비교 대조 중...');
 
-    // Fetch user's current AniList Manga collection
+    // Fetch user's current AniList Manga collection & latest sync history
     const userMangaMap = await AniListService.getUserMangaList(state.auth.user.id, state.auth.token);
     state.mappings = await StorageService.getMappings();
+    state.syncHistory = await StorageService.getSyncHistory();
 
     const processedList = [];
 
@@ -255,19 +258,25 @@ async function handleScanRecent() {
         };
       }
 
-      // Check if update is needed (Any episode difference or not currently Reading in AniList)
-      const currentAL = anilistData ? anilistData.currentProgress : 0;
+      // Check against Local Sync History & AniList State
+      const historyRecord = state.syncHistory[item.titleId];
+      const lastSyncedEp = historyRecord ? Number(historyRecord.episodeNo) : 0;
+      const currentAL = anilistData ? Number(anilistData.currentProgress) : 0;
       const currentStatus = anilistData ? anilistData.currentStatus : 'NOT_IN_LIST';
-      const isProgressDifferent = item.episodeNo !== currentAL;
-      const isStatusDifferent = currentStatus !== 'CURRENT';
 
-      const needsSync = isProgressDifferent || isStatusDifferent || currentStatus === 'NOT_IN_LIST';
+      // Has this exact episode (or newer) already been synced without change?
+      const isAlreadySyncedInAniList = currentStatus === 'CURRENT' && currentAL >= item.episodeNo;
+      const isAlreadySyncedLocally = currentStatus === 'CURRENT' && lastSyncedEp >= item.episodeNo;
+      const isUnchanged = (isAlreadySyncedInAniList || isAlreadySyncedLocally) && currentStatus !== 'NOT_IN_LIST';
+
+      const needsSync = !isUnchanged;
 
       processedList.push({
         ...item,
         anilistData,
+        lastSyncedEp,
         needsSync,
-        selected: Boolean(mapping && needsSync)
+        selected: Boolean(mapping && needsSync) // Unchanged items are deselected by default
       });
     }
 
@@ -332,10 +341,16 @@ function renderWebtoonList() {
       const alProg = item.anilistData.currentProgress;
       const diff = item.episodeNo - alProg;
 
-      if (diff > 0) {
+      if (!item.needsSync) {
+        progressHtml = `
+          <span class="progress-pill pill-synced">
+            ✓ 최신 상태 (${editBtnHtml} · 변경없음)
+          </span>
+        `;
+      } else if (diff > 0) {
         progressHtml = `
           <span class="progress-pill pill-diff">
-            AniList ${alProg}화 ➔ ${editBtnHtml} (+${diff}화)
+            AniList ${alProg}화 ➔ ${editBtnHtml} (+${diff}화 신규)
           </span>
         `;
       } else if (diff < 0) {
@@ -347,7 +362,7 @@ function renderWebtoonList() {
       } else {
         progressHtml = `
           <span class="progress-pill pill-synced">
-            최신 상태 (${editBtnHtml})
+            ✓ 최신 상태 (${editBtnHtml} · 변경없음)
           </span>
         `;
       }
@@ -549,6 +564,7 @@ async function handleBatchSync() {
   elements.btnBatchSync.disabled = true;
   let successCount = 0;
   let failCount = 0;
+  const successfullySyncedItems = [];
 
   for (let i = 0; i < selectedItems.length; i++) {
     const item = selectedItems[i];
@@ -569,8 +585,10 @@ async function handleBatchSync() {
 
       item.anilistData.currentProgress = item.episodeNo;
       item.anilistData.currentStatus = targetStatus;
+      item.lastSyncedEp = item.episodeNo;
       item.needsSync = false;
       item.selected = false;
+      successfullySyncedItems.push(item);
       successCount++;
 
       // Rate Limit 방어: 요청 간 800ms 안전 딜레이
@@ -579,6 +597,12 @@ async function handleBatchSync() {
       console.error('Failed to sync item:', item.titleName, err);
       failCount++;
     }
+  }
+
+  // 성공적으로 동기화된 웹툰 목록을 로컬 스토리지에 영구 기록
+  if (successfullySyncedItems.length > 0) {
+    await StorageService.recordBatchSync(successfullySyncedItems);
+    state.syncHistory = await StorageService.getSyncHistory();
   }
 
   elements.btnBatchSync.disabled = false;

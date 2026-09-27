@@ -7,7 +7,8 @@ const STORAGE_KEYS = {
   AUTH: 'nw_anilist_auth',
   MAPPINGS: 'nw_anilist_mappings',
   SETTINGS: 'nw_anilist_settings',
-  RECENT_CACHE: 'nw_anilist_recent_cache'
+  RECENT_CACHE: 'nw_anilist_recent_cache',
+  SYNC_HISTORY: 'nw_anilist_sync_history'
 };
 
 const DEFAULT_SETTINGS = {
@@ -111,6 +112,57 @@ export const StorageService = {
     return new Promise((resolve) => {
       chrome.storage.local.set({ [STORAGE_KEYS.SETTINGS]: updated }, () => {
         resolve(updated);
+      });
+    });
+  },
+
+  /**
+   * Get sync history
+   * Returns: { [naverTitleId]: { episodeNo: number, syncedAt: string, mediaId: number } }
+   */
+  async getSyncHistory() {
+    return new Promise((resolve) => {
+      chrome.storage.local.get([STORAGE_KEYS.SYNC_HISTORY], (result) => {
+        resolve(result[STORAGE_KEYS.SYNC_HISTORY] || {});
+      });
+    });
+  },
+
+  /**
+   * Record a single synced webtoon episode
+   */
+  async recordSync(naverTitleId, episodeNo, mediaId) {
+    const history = await this.getSyncHistory();
+    history[naverTitleId] = {
+      episodeNo: Number(episodeNo),
+      mediaId: Number(mediaId),
+      syncedAt: new Date().toISOString()
+    };
+    return new Promise((resolve) => {
+      chrome.storage.local.set({ [STORAGE_KEYS.SYNC_HISTORY]: history }, () => {
+        resolve(history);
+      });
+    });
+  },
+
+  /**
+   * Record multiple synced webtoon episodes at once
+   */
+  async recordBatchSync(items) {
+    const history = await this.getSyncHistory();
+    const now = new Date().toISOString();
+    items.forEach(item => {
+      if (item.titleId && item.episodeNo) {
+        history[item.titleId] = {
+          episodeNo: Number(item.episodeNo),
+          mediaId: item.anilistData?.mediaId || null,
+          syncedAt: now
+        };
+      }
+    });
+    return new Promise((resolve) => {
+      chrome.storage.local.set({ [STORAGE_KEYS.SYNC_HISTORY]: history }, () => {
+        resolve(history);
       });
     });
   }
