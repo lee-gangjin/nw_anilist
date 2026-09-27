@@ -1,6 +1,6 @@
 {
   "name": "nw_anilist",
-  "version": "1.0.3",
+  "version": "1.0.4",
   "description": "Naver Webtoon to AniList Manga Tracker & Sync Extension",
   "main": "src/background/service_worker.js",
   "scripts": {
