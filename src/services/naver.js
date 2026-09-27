@@ -107,6 +107,10 @@ export const NaverWebtoonService = {
  * In-Page Extraction Function (injected into comic.naver.com tab)
  * Reads React-rendered DOM elements (Mypage recently, favorite, or main)
  */
+/**
+ * In-Page Extraction Function (injected into comic.naver.com tab)
+ * Reads React-rendered DOM elements (Mypage recently, favorite, or main)
+ */
 function inPageExtractor() {
   const items = [];
 
@@ -115,57 +119,89 @@ function inPageExtractor() {
     return [];
   }
 
-  // Support list view, card view, and poster grids
-  const candidateElements = document.querySelectorAll('li, div[class*="Poster"], div[class*="item"], div[class*="Card"], tr');
+  // 1. Find all titleId links on page
+  const allTitleLinks = document.querySelectorAll('a[href*="titleId"]');
 
-  candidateElements.forEach(el => {
-    // Look for link with titleId
-    const link = el.querySelector('a[href*="titleId"]');
-    if (!link) return;
+  // Group by titleId using the closest card / row container
+  const seenTitleIds = new Set();
 
+  allTitleLinks.forEach(link => {
     const href = link.getAttribute('href') || '';
     const urlParams = new URLSearchParams(href.split('?')[1] || '');
     const titleId = urlParams.get('titleId');
-    const no = urlParams.get('no') || '1';
+    if (!titleId || seenTitleIds.has(titleId)) return;
 
-    if (!titleId) return;
+    // Find the enclosing card / list item container
+    const container = link.closest('li, tr, [class*="EpisodeListList__item"], [class*="item"], [class*="Card"], [class*="row"]') || link.parentElement;
+    if (!container) return;
 
-    // Avoid duplicates
-    if (items.some(it => it.titleId === titleId)) return;
+    seenTitleIds.add(titleId);
 
-    // Title Name
-    const titleEl = el.querySelector('[class*="title"], [class*="name"], strong, h3, h4, .tit');
+    // 1) Title Name
+    const titleEl = container.querySelector('[class*="title"], [class*="name"], strong, h3, h4, .tit');
     let titleName = titleEl ? titleEl.textContent.trim() : '';
-
     if (!titleName) {
-      // Try link title or text
       titleName = link.getAttribute('title') || link.textContent.trim();
     }
-    // Clean UP badge text (e.g. "UP 시한부 천재가 살아남는 법")
-    titleName = titleName.replace(/^UP\s*/, '').replace(/NEW\s*/, '').trim();
-
+    // Clean up UP, NEW, etc.
+    titleName = titleName.replace(/^(?:UP|NEW)\s*/i, '').trim();
     if (!titleName || titleName.length < 2) return;
 
-    // Episode Number
-    let episodeNo = parseInt(no, 10) || 1;
-    const wholeText = el.textContent || '';
-    const epMatch = wholeText.match(/(?:제\s*)?(\d+)\s*(?:화|회|장|편)/);
-    if (epMatch) {
-      episodeNo = parseInt(epMatch[1], 10);
+    // 2) Episode Number Extraction (Crucial!)
+    let episodeNo = null;
+
+    // Priority A: Check all links in container for detail link with 'no' param (e.g. /webtoon/detail?titleId=...&no=62)
+    const detailLinks = container.querySelectorAll('a[href*="no="]');
+    for (const dLink of detailLinks) {
+      const dHref = dLink.getAttribute('href') || '';
+      const dParams = new URLSearchParams(dHref.split('?')[1] || '');
+      const parsedNo = parseInt(dParams.get('no'), 10);
+      if (parsedNo && parsedNo > 0) {
+        episodeNo = parsedNo;
+        break;
+      }
     }
 
-    // Completion & Hiatus status
-    const isCompleted = wholeText.includes('완결') || el.querySelector('[class*="complete"]') !== null;
-    const isHiatus = wholeText.includes('휴재') || el.querySelector('[class*="rest"], [class*="hiatus"]') !== null;
+    // Priority B: Subtitle or Episode text element (e.g. "62화. 제목", "62화")
+    if (!episodeNo) {
+      const epTextEl = container.querySelector('[class*="sub_title"], [class*="episode"], [class*="desc"], [class*="info"] span, em');
+      if (epTextEl) {
+        const match = epTextEl.textContent.match(/(\d+)\s*(?:화|회|장|편)/);
+        if (match) {
+          episodeNo = parseInt(match[1], 10);
+        }
+      }
+    }
 
-    // Poster Image
-    const imgEl = el.querySelector('img');
+    // Priority C: Entire container text regex search
+    if (!episodeNo) {
+      const containerText = container.innerText || container.textContent || '';
+      // Find patterns like "62화", "62 회", "제 62 화"
+      const epMatches = [...containerText.matchAll(/(?:제\s*)?(\d+)\s*(?:화|회|장|편)/g)];
+      if (epMatches.length > 0) {
+        // Take the last or most prominent episode match (ignores year 2026, date numbers)
+        episodeNo = parseInt(epMatches[0][1], 10);
+      }
+    }
+
+    // Fallback: If still nothing, check original link 'no' or default to 1
+    if (!episodeNo) {
+      episodeNo = parseInt(urlParams.get('no'), 10) || 1;
+    }
+
+    // 3) Completion & Hiatus status
+    const wholeText = container.textContent || '';
+    const isCompleted = wholeText.includes('완결') || container.querySelector('[class*="complete"]') !== null;
+    const isHiatus = wholeText.includes('휴재') || container.querySelector('[class*="rest"], [class*="hiatus"]') !== null;
+
+    // 4) Poster Image
+    const imgEl = container.querySelector('img');
     const thumbnail = imgEl ? (imgEl.src || imgEl.getAttribute('data-src') || '') : '';
 
     items.push({
       titleId,
       titleName,
-      episodeNo,
+      episodeNo: Number(episodeNo),
       episodeTitle: '',
       isCompleted,
       isHiatus,
