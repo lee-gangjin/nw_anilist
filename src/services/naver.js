@@ -1,51 +1,33 @@
 /**
  * nw_anilist - Naver Webtoon Parser Service
- * Fetches and parses recently read webtoons and viewer metadata from comic.naver.com
+ * Scans webtoon data directly from active or background comic.naver.com tabs
+ * (Solves React SPA empty HTML limitation)
  */
 
 export const NaverWebtoonService = {
   /**
-   * Fetch user's recently read webtoon list from comic.naver.com
-   * Uses browser's active session cookie (credentials: 'include')
+   * Fetch webtoon list by scanning the open comic.naver.com tab (or launching a scan tab)
    */
   async fetchRecentWebtoons() {
     try {
-      // Fetch the recent webtoon mypage (comic.naver.com/mypage/recently)
-      const response = await fetch('https://comic.naver.com/mypage/recently', {
-        method: 'GET',
-        credentials: 'include',
-        headers: {
-          'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8'
-        }
+      // 1. Find if user already has comic.naver.com open
+      const tabs = await new Promise((resolve) => {
+        chrome.tabs.query({ url: '*://comic.naver.com/*' }, (result) => {
+          resolve(result || []);
+        });
       });
 
-      if (!response.ok) {
-        throw new Error(`네이버 응답 오류 (HTTP ${response.status})`);
-      }
-
-      const html = await response.text();
-
-      // Check if user is logged into Naver
-      if (html.includes('로그인이 필요합니다') || html.includes('nid.naver.com/nidlogin.login')) {
-        throw new Error('NEEDS_LOGIN');
-      }
-
-      // 1. Try Next.js __NEXT_DATA__ JSON extraction (fastest, most reliable)
-      const nextDataMatch = html.match(/<script\s+id="__NEXT_DATA__"\s+type="application\/json">([\s\S]*?)<\/script>/);
-      if (nextDataMatch && nextDataMatch[1]) {
-        try {
-          const nextData = JSON.parse(nextDataMatch[1]);
-          const recentList = this._extractFromNextData(nextData);
-          if (recentList && recentList.length > 0) {
-            return recentList;
-          }
-        } catch (e) {
-          console.warn('[NaverWebtoonService] Failed to parse __NEXT_DATA__, falling back to DOM parsing', e);
+      if (tabs.length > 0) {
+        // Prefer mypage tab if open, otherwise the first comic.naver.com tab
+        const mypageTab = tabs.find(t => t.url?.includes('/mypage')) || tabs[0];
+        const extracted = await this._extractFromTab(mypageTab.id);
+        if (extracted && extracted.length > 0) {
+          return extracted;
         }
       }
 
-      // 2. Fallback to DOM parsing
-      return this._parseRecentFromHtml(html);
+      // 2. If no tab found or tab yielded 0 items, temporarily open mypage in background tab
+      return await this._scanViaBackgroundTab('https://comic.naver.com/mypage/recently');
     } catch (err) {
       console.error('[NaverWebtoonService] fetchRecentWebtoons error:', err);
       throw err;
@@ -53,193 +35,143 @@ export const NaverWebtoonService = {
   },
 
   /**
-   * Extract webtoon list from __NEXT_DATA__ state
+   * Extract webtoons by executing script on an existing tab
    */
-  _extractFromNextData(nextData) {
-    const pageProps = nextData?.props?.pageProps;
-    if (!pageProps) return null;
-
-    // Search common Next.js pageProps structures for webtoon array
-    const candidates = [
-      pageProps.recentWebtoonList,
-      pageProps.recentList,
-      pageProps.webtoonList,
-      pageProps.data?.recentList,
-      pageProps.dehydratedState?.queries?.[0]?.state?.data?.recentList
-    ];
-
-    let list = candidates.find(arr => Array.isArray(arr) && arr.length > 0);
-
-    // If deeply nested in queries
-    if (!list && pageProps.dehydratedState?.queries) {
-      for (const q of pageProps.dehydratedState.queries) {
-        const d = q?.state?.data;
-        if (Array.isArray(d)) {
-          list = d;
-          break;
-        } else if (Array.isArray(d?.itemList)) {
-          list = d.itemList;
-          break;
-        } else if (Array.isArray(d?.recentList)) {
-          list = d.recentList;
-          break;
+  async _extractFromTab(tabId) {
+    return new Promise((resolve) => {
+      chrome.scripting.executeScript(
+        {
+          target: { tabId },
+          func: inPageExtractor
+        },
+        (injectionResults) => {
+          if (chrome.runtime.lastError || !injectionResults || !injectionResults[0]) {
+            console.warn('[NaverWebtoonService] Script injection failed:', chrome.runtime.lastError);
+            resolve([]);
+          } else {
+            resolve(injectionResults[0].result || []);
+          }
         }
-      }
-    }
-
-    if (!list) return null;
-
-    return list.map(item => this._normalizeWebtoonItem(item)).filter(Boolean);
+      );
+    });
   },
 
   /**
-   * Normalize an item into a unified schema
+   * Temporarily open a background tab, wait for React to mount, and extract DOM
    */
-  _normalizeWebtoonItem(item) {
-    if (!item) return null;
+  async _scanViaBackgroundTab(url) {
+    return new Promise((resolve, reject) => {
+      chrome.tabs.create({ url, active: false }, (newTab) => {
+        if (!newTab || !newTab.id) {
+          reject(new Error('네이버 탭을 생성할 수 없습니다.'));
+          return;
+        }
 
-    const titleId = String(item.titleId || item.id || '');
-    if (!titleId) return null;
+        const tabId = newTab.id;
+        let attempts = 0;
+        const maxAttempts = 6;
 
-    const titleName = (item.titleName || item.title || '').trim();
-    
-    // Episode number extraction
-    let episodeNo = item.no || item.articleNo || item.episodeNo || 0;
-    const epSubtitle = item.subtitle || item.episodeTitle || item.articleTitle || '';
+        // Poll for DOM content once tab finishes loading
+        const listener = (updatedTabId, changeInfo) => {
+          if (updatedTabId === tabId && changeInfo.status === 'complete') {
+            chrome.tabs.onUpdated.removeListener(listener);
 
-    // If episodeNo is missing or raw article index, try extracting real chapter number from subtitle
-    if (epSubtitle) {
-      const match = epSubtitle.match(/(?:제\s*)?(\d+)\s*(?:화|회|장|편)/);
-      if (match) {
-        episodeNo = parseInt(match[1], 10);
-      }
+            const interval = setInterval(async () => {
+              attempts++;
+              const items = await this._extractFromTab(tabId);
+              
+              if ((items && items.length > 0) || attempts >= maxAttempts) {
+                clearInterval(interval);
+                // Close the background tab
+                chrome.tabs.remove(tabId, () => {});
+                resolve(items || []);
+              }
+            }, 600);
+          }
+        };
+
+        chrome.tabs.onUpdated.addListener(listener);
+
+        // Safety timeout (10 seconds)
+        setTimeout(() => {
+          chrome.tabs.onUpdated.removeListener(listener);
+          chrome.tabs.remove(tabId, () => {});
+          resolve([]);
+        }, 10000);
+      });
+    });
+  }
+};
+
+/**
+ * In-Page Extraction Function (injected into comic.naver.com tab)
+ * Reads React-rendered DOM elements (Mypage recently, favorite, or main)
+ */
+function inPageExtractor() {
+  const items = [];
+
+  // Check if page redirected to login
+  if (document.body.innerText.includes('로그인이 필요합니다') || window.location.href.includes('nidlogin.login')) {
+    return [];
+  }
+
+  // Support list view, card view, and poster grids
+  const candidateElements = document.querySelectorAll('li, div[class*="Poster"], div[class*="item"], div[class*="Card"], tr');
+
+  candidateElements.forEach(el => {
+    // Look for link with titleId
+    const link = el.querySelector('a[href*="titleId"]');
+    if (!link) return;
+
+    const href = link.getAttribute('href') || '';
+    const urlParams = new URLSearchParams(href.split('?')[1] || '');
+    const titleId = urlParams.get('titleId');
+    const no = urlParams.get('no') || '1';
+
+    if (!titleId) return;
+
+    // Avoid duplicates
+    if (items.some(it => it.titleId === titleId)) return;
+
+    // Title Name
+    const titleEl = el.querySelector('[class*="title"], [class*="name"], strong, h3, h4, .tit');
+    let titleName = titleEl ? titleEl.textContent.trim() : '';
+
+    if (!titleName) {
+      // Try link title or text
+      titleName = link.getAttribute('title') || link.textContent.trim();
+    }
+    // Clean UP badge text (e.g. "UP 시한부 천재가 살아남는 법")
+    titleName = titleName.replace(/^UP\s*/, '').replace(/NEW\s*/, '').trim();
+
+    if (!titleName || titleName.length < 2) return;
+
+    // Episode Number
+    let episodeNo = parseInt(no, 10) || 1;
+    const wholeText = el.textContent || '';
+    const epMatch = wholeText.match(/(?:제\s*)?(\d+)\s*(?:화|회|장|편)/);
+    if (epMatch) {
+      episodeNo = parseInt(epMatch[1], 10);
     }
 
-    // Determine completion & hiatus status
-    const isCompleted = Boolean(
-      item.finished || 
-      item.webtoonType === 'COMPLETE' || 
-      item.publishDescription?.includes('완결') ||
-      item.status === 'COMPLETED'
-    );
+    // Completion & Hiatus status
+    const isCompleted = wholeText.includes('완결') || el.querySelector('[class*="complete"]') !== null;
+    const isHiatus = wholeText.includes('휴재') || el.querySelector('[class*="rest"], [class*="hiatus"]') !== null;
 
-    const isHiatus = Boolean(
-      item.rest || 
-      item.publishDescription?.includes('휴재') ||
-      item.status === 'HIATUS'
-    );
+    // Poster Image
+    const imgEl = el.querySelector('img');
+    const thumbnail = imgEl ? (imgEl.src || imgEl.getAttribute('data-src') || '') : '';
 
-    const thumbnail = item.thumbnailUrl || item.posterUrl || item.imgUrl || '';
-
-    return {
+    items.push({
       titleId,
       titleName,
-      episodeNo: Number(episodeNo) || 1,
-      episodeTitle: epSubtitle,
+      episodeNo,
+      episodeTitle: '',
       isCompleted,
       isHiatus,
       thumbnail
-    };
-  },
-
-  /**
-   * Fallback DOM parser for recent webtoons HTML
-   */
-  _parseRecentFromHtml(html) {
-    const parser = new DOMParser();
-    const doc = parser.parseFromString(html, 'text/html');
-    const items = [];
-
-    // Query list items (supports both desktop card view and list view)
-    const elements = doc.querySelectorAll('li, div[class*="Poster"], div[class*="item"], div[class*="Card"]');
-
-    elements.forEach(el => {
-      const link = el.querySelector('a[href*="titleId"]');
-      if (!link) return;
-
-      const href = link.getAttribute('href') || '';
-      const urlParams = new URLSearchParams(href.split('?')[1] || '');
-      const titleId = urlParams.get('titleId');
-      const no = urlParams.get('no') || '1';
-
-      if (!titleId) return;
-
-      // Skip duplicates if already added
-      if (items.some(it => it.titleId === titleId)) return;
-
-      const titleEl = el.querySelector('[class*="title"], [class*="name"], strong, h3, h4');
-      const titleName = titleEl ? titleEl.textContent.trim() : '';
-
-      const epEl = el.querySelector('[class*="sub_title"], [class*="desc"], [class*="episode"], .text');
-      const epText = epEl ? epEl.textContent.trim() : '';
-
-      let episodeNo = parseInt(no, 10);
-      const epMatch = epText.match(/(?:제\s*)?(\d+)\s*(?:화|회|장|편)/);
-      if (epMatch) {
-        episodeNo = parseInt(epMatch[1], 10);
-      }
-
-      const isCompleted = el.textContent.includes('완결');
-      const isHiatus = el.textContent.includes('휴재');
-
-      const imgEl = el.querySelector('img');
-      const thumbnail = imgEl ? (imgEl.src || imgEl.getAttribute('data-src') || '') : '';
-
-      if (titleName) {
-        items.push({
-          titleId,
-          titleName,
-          episodeNo,
-          episodeTitle: epText,
-          isCompleted,
-          isHiatus,
-          thumbnail
-        });
-      }
     });
+  });
 
-    return items;
-  },
-
-  /**
-   * Parse metadata directly from viewer page
-   */
-  parseViewerPage(doc, location) {
-    const urlParams = new URLSearchParams(location.search);
-    const titleId = urlParams.get('titleId');
-    const no = parseInt(urlParams.get('no') || '1', 10);
-
-    if (!titleId) return null;
-
-    // Title from page
-    const ogTitle = doc.querySelector('meta[property="og:title"]')?.content || '';
-    let webtoonTitle = ogTitle;
-
-    // Typical format: "제목 - 150화 서브타이틀"
-    if (webtoonTitle.includes(' - ')) {
-      webtoonTitle = webtoonTitle.split(' - ')[0].trim();
-    }
-
-    if (!webtoonTitle) {
-      const titleEl = doc.querySelector('.EpisodeNavigation__title--...', 'h2', '.comic_title');
-      if (titleEl) webtoonTitle = titleEl.textContent.trim();
-    }
-
-    // Episode title & real chapter number
-    let episodeNo = no;
-    const epSubtitleEl = doc.querySelector('.EpisodeNavigation__sub_title--...', '.tit_sub', 'h3');
-    const epSubtitle = epSubtitleEl ? epSubtitleEl.textContent.trim() : '';
-
-    const match = (epSubtitle || ogTitle).match(/(?:제\s*)?(\d+)\s*(?:화|회|장|편)/);
-    if (match) {
-      episodeNo = parseInt(match[1], 10);
-    }
-
-    return {
-      titleId,
-      webtoonTitle: webtoonTitle || '웹툰',
-      episodeNo,
-      episodeTitle: epSubtitle
-    };
-  }
-};
+  return items;
+}
