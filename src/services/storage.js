@@ -15,7 +15,8 @@ const DEFAULT_SETTINGS = {
   autoScrollSync: true,          // Sync when scrolling 80% in viewer
   minScrollPercent: 80,
   syncNotification: true,
-  planningThreshold: 5           // 5화 이하일 때 Planning(읽을 예정)으로 등록, 6화 이상은 Reading(CURRENT)
+  planningThreshold: 5,          // 5화 이하일 때 Planning(읽을 예정)으로 등록, 6화 이상은 Reading(CURRENT)
+  keepMaxProgress: true          // 최대 시청 회차 보존 (재주행/정주행 시 더 낮은 회차로 덮어쓰지 않고 최대값 유지)
 };
 
 /**
@@ -144,10 +145,12 @@ export const StorageService = {
   /**
    * Record a single synced webtoon episode
    */
-  async recordSync(naverTitleId, episodeNo, mediaId) {
+  async recordSync(naverTitleId, episodeNo, mediaId, keepMax = true) {
     const history = await this.getSyncHistory();
+    const prev = history[naverTitleId]?.episodeNo || 0;
+    const finalEpisodeNo = (keepMax && prev > Number(episodeNo)) ? prev : Number(episodeNo);
     history[naverTitleId] = {
-      episodeNo: Number(episodeNo),
+      episodeNo: finalEpisodeNo,
       mediaId: Number(mediaId),
       syncedAt: new Date().toISOString()
     };
@@ -161,13 +164,15 @@ export const StorageService = {
   /**
    * Record multiple synced webtoon episodes at once
    */
-  async recordBatchSync(items) {
+  async recordBatchSync(items, keepMax = true) {
     const history = await this.getSyncHistory();
     const now = new Date().toISOString();
     items.forEach(item => {
       if (item.titleId && item.episodeNo) {
+        const prev = history[item.titleId]?.episodeNo || 0;
+        const finalEpisodeNo = (keepMax && prev > Number(item.episodeNo)) ? prev : Number(item.episodeNo);
         history[item.titleId] = {
-          episodeNo: Number(item.episodeNo),
+          episodeNo: finalEpisodeNo,
           mediaId: item.anilistData?.mediaId || null,
           syncedAt: now
         };

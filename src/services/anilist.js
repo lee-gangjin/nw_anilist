@@ -166,6 +166,26 @@ export const AniListService = {
   },
 
   /**
+   * Fetch current user's entry for a specific manga media
+   */
+  async getMediaEntry(mediaId, token) {
+    const query = `
+      query ($mediaId: Int) {
+        Media(id: $mediaId, type: MANGA) {
+          id
+          mediaListEntry {
+            id
+            status
+            progress
+          }
+        }
+      }
+    `;
+    const data = await this.request(query, { mediaId: Number(mediaId) }, token);
+    return data?.Media?.mediaListEntry || null;
+  },
+
+  /**
    * Update or Add an entry in AniList MediaList
    * @param {Object} params - { mediaId, progress, status }
    * @param {string} token

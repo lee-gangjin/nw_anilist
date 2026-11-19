@@ -55,22 +55,62 @@ async function handleSingleSync({ titleId, episodeNo, webtoonTitle }) {
   }
 
   const settings = await StorageService.getSettings();
-  const status = getMediaListStatus(episodeNo, settings.planningThreshold || 5);
+  const keepMaxProgress = settings.keepMaxProgress !== false;
+  const numEpisodeNo = Number(episodeNo);
+
+  // Check current AniList progress if keepMaxProgress is enabled
+  if (keepMaxProgress) {
+    try {
+      const currentEntry = await AniListService.getMediaEntry(mapping.mediaId, auth.token);
+      const currentProgress = currentEntry ? Number(currentEntry.progress || 0) : 0;
+
+      if (currentEntry && currentProgress >= numEpisodeNo) {
+        console.log(`[service_worker] Preserving max progress: Current AniList ${currentProgress} >= Viewed ${numEpisodeNo}`);
+        await StorageService.recordSync(titleId, currentProgress, mapping.mediaId, true);
+        return {
+          mediaId: mapping.mediaId,
+          title: mapping.anilistTitle,
+          progress: currentProgress,
+          requestedEpisode: numEpisodeNo,
+          preserved: true,
+          entry: currentEntry
+        };
+      }
+    } catch (e) {
+      console.warn('[service_worker] Failed to check AniList entry, falling back to local history:', e);
+      const history = await StorageService.getSyncHistory();
+      const localEp = history[titleId]?.episodeNo || 0;
+      if (localEp >= numEpisodeNo) {
+        return {
+          mediaId: mapping.mediaId,
+          title: mapping.anilistTitle,
+          progress: localEp,
+          requestedEpisode: numEpisodeNo,
+          preserved: true
+        };
+      }
+    }
+  }
+
+  const status = getMediaListStatus(numEpisodeNo, settings.planningThreshold || 5);
 
   // Save to AniList
   const updatedEntry = await AniListService.saveMediaListEntry(
     {
       mediaId: mapping.mediaId,
-      progress: episodeNo,
+      progress: numEpisodeNo,
       status: status
     },
     auth.token
   );
 
+  await StorageService.recordSync(titleId, numEpisodeNo, mapping.mediaId, keepMaxProgress);
+
   return {
     mediaId: mapping.mediaId,
     title: mapping.anilistTitle,
-    progress: episodeNo,
+    progress: numEpisodeNo,
+    preserved: false,
     entry: updatedEntry
   };
 }

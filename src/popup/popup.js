@@ -35,6 +35,7 @@ const elements = {
 
   // Actions
   btnScanRecent: document.getElementById('btnScanRecent'),
+  chkKeepMaxProgress: document.getElementById('chkKeepMaxProgress'),
   scanStatus: document.getElementById('scanStatus'),
   statusMessage: document.getElementById('statusMessage'),
 
@@ -76,6 +77,11 @@ async function loadInitialState() {
 
   // Render Auth State
   updateAuthUI();
+
+  // Render Settings
+  if (elements.chkKeepMaxProgress) {
+    elements.chkKeepMaxProgress.checked = state.settings?.keepMaxProgress !== false;
+  }
 }
 
 function updateAuthUI() {
@@ -112,6 +118,24 @@ function setupEventListeners() {
 
   // Scan Recent Button
   elements.btnScanRecent.addEventListener('click', handleScanRecent);
+
+  // Keep Max Progress Toggle
+  if (elements.chkKeepMaxProgress) {
+    elements.chkKeepMaxProgress.addEventListener('change', async (e) => {
+      const isChecked = e.target.checked;
+      await StorageService.setSettings({ keepMaxProgress: isChecked });
+      state.settings.keepMaxProgress = isChecked;
+      showToast(
+        isChecked
+          ? '🛡️ 최대 회차 보존 활성화 (재주행 시 이전 회차로 낮아지지 않음)'
+          : '⚠️ 최대 회차 보존 비활성화 (최근 본 회차로 직접 갱신)'
+      );
+      if (state.scannedItems && state.scannedItems.length > 0) {
+        recalculateScannedItems();
+        renderWebtoonList();
+      }
+    });
+  }
 
   // Select All
   elements.chkSelectAll.addEventListener('change', (e) => {
@@ -188,6 +212,46 @@ function showTokenError(msg) {
 }
 
 /**
+ * Calculate or recalculate sync diff state for a single item
+ */
+function updateItemSyncState(item) {
+  const historyRecord = state.syncHistory[item.titleId];
+  const lastSyncedEp = historyRecord ? Number(historyRecord.episodeNo) : 0;
+  const currentAL = item.anilistData ? Number(item.anilistData.currentProgress) : 0;
+  const currentStatus = item.anilistData ? item.anilistData.currentStatus : 'NOT_IN_LIST';
+
+  const keepMax = state.settings?.keepMaxProgress !== false;
+  // 재주행 감지: AniList에 이미 현재 보고 있는 회차보다 더 높은 회차가 기록되어 있는 경우
+  const isRewatch = Boolean(item.anilistData && keepMax && currentAL > item.episodeNo);
+
+  const threshold = state.settings?.planningThreshold || 5;
+  // 재주행 방어 활성화 시 타겟 상태는 기존 최대 회차 기준(status 강등 방지)
+  const effectiveEp = (isRewatch && keepMax) ? currentAL : item.episodeNo;
+  const targetStatus = getMediaListStatus(effectiveEp, threshold);
+
+  // 이미 동기화된 상태인지 검사
+  const isStatusMatch = currentStatus === targetStatus;
+  const isAlreadySyncedInAniList = isStatusMatch && currentAL >= item.episodeNo;
+  const isAlreadySyncedLocally = isStatusMatch && lastSyncedEp >= item.episodeNo;
+  const isUnchanged = (isAlreadySyncedInAniList || isAlreadySyncedLocally) && currentStatus !== 'NOT_IN_LIST';
+
+  // 재주행(isRewatch)인 경우 최대 회차를 유지하므로 동기화 대상에서 자동 제외
+  const needsSync = !isUnchanged && !isRewatch;
+
+  item.isRewatch = isRewatch;
+  item.needsSync = needsSync;
+  item.targetStatus = targetStatus;
+  item.selected = Boolean(item.anilistData?.mediaId && needsSync);
+}
+
+/**
+ * Recalculate states for all scanned items (e.g. when toggle changes)
+ */
+function recalculateScannedItems() {
+  state.scannedItems.forEach(item => updateItemSyncState(item));
+}
+
+/**
  * Handle scan recent webtoons from Naver
  */
 async function handleScanRecent() {
@@ -258,30 +322,14 @@ async function handleScanRecent() {
         };
       }
 
-      // Check against Local Sync History & AniList State
-      const historyRecord = state.syncHistory[item.titleId];
-      const lastSyncedEp = historyRecord ? Number(historyRecord.episodeNo) : 0;
-      const currentAL = anilistData ? Number(anilistData.currentProgress) : 0;
-      const currentStatus = anilistData ? anilistData.currentStatus : 'NOT_IN_LIST';
-
-      const threshold = state.settings?.planningThreshold || 5;
-      const targetStatus = getMediaListStatus(item.episodeNo, threshold);
-
-      // Has this exact episode (or newer) and matching status already been synced?
-      const isStatusMatch = currentStatus === targetStatus;
-      const isAlreadySyncedInAniList = isStatusMatch && currentAL >= item.episodeNo;
-      const isAlreadySyncedLocally = isStatusMatch && lastSyncedEp >= item.episodeNo;
-      const isUnchanged = (isAlreadySyncedInAniList || isAlreadySyncedLocally) && currentStatus !== 'NOT_IN_LIST';
-
-      const needsSync = !isUnchanged;
-
-      processedList.push({
+      const itemRecord = {
         ...item,
         anilistData,
-        lastSyncedEp,
-        needsSync,
-        selected: Boolean(mapping && needsSync) // Unchanged items are deselected by default
-      });
+        lastSyncedEp: state.syncHistory[item.titleId] ? Number(state.syncHistory[item.titleId].episodeNo) : 0
+      };
+
+      updateItemSyncState(itemRecord);
+      processedList.push(itemRecord);
     }
 
     state.scannedItems = processedList;
@@ -338,20 +386,28 @@ function renderWebtoonList() {
     if (item.anilistData) eligibleCount++;
 
     const threshold = state.settings?.planningThreshold || 5;
-    const targetStatus = getMediaListStatus(item.episodeNo, threshold);
+    const keepMax = state.settings?.keepMaxProgress !== false;
+    const effectiveEp = (item.isRewatch && keepMax && item.anilistData) ? Number(item.anilistData.currentProgress) : item.episodeNo;
+    const targetStatus = item.targetStatus || getMediaListStatus(effectiveEp, threshold);
     const isPlanning = targetStatus === 'PLANNING';
     const statusLabel = isPlanning ? 'Planning' : 'Reading';
-    const statusBadge = `<span class="target-status-badge ${isPlanning ? 'planning' : 'reading'}">${statusLabel}</span>`;
+    const statusBadge = `<span class="target-status-badge ${isPlanning ? 'planning' : 'reading'}">${statusLabel}${item.isRewatch ? ' (유지)' : ''}</span>`;
 
     // Progress Badge with direct edit button
     let progressHtml = '';
     const editBtnHtml = `<button class="btn-inline-edit-ep" data-index="${masterIndex}" title="회차 직접 수정">✏️ ${item.episodeNo}화</button>`;
 
     if (item.anilistData) {
-      const alProg = item.anilistData.currentProgress;
+      const alProg = Number(item.anilistData.currentProgress || 0);
       const diff = item.episodeNo - alProg;
 
-      if (!item.needsSync) {
+      if (item.isRewatch) {
+        progressHtml = `
+          <span class="progress-pill pill-preserved" title="재주행 감지: AniList에 더 높은 회차(${alProg}화)가 기록되어 있어 기존 최대 회차를 안전하게 보존합니다.">
+            🛡️ 최대 ${alProg}화 보존 (재주행: ${editBtnHtml})
+          </span>
+        `;
+      } else if (!item.needsSync) {
         progressHtml = `
           <span class="progress-pill pill-synced">
             ✓ 최신 상태 (${editBtnHtml} · ${statusLabel})
@@ -460,10 +516,7 @@ function renderWebtoonList() {
         const parsed = parseInt(input.trim(), 10);
         if (!isNaN(parsed) && parsed > 0) {
           item.episodeNo = parsed;
-          if (item.anilistData) {
-            item.needsSync = true;
-            item.selected = true;
-          }
+          updateItemSyncState(item);
           renderWebtoonList();
           showToast(`'${item.titleName}' 회차가 ${parsed}화로 변경되었습니다.`);
         }
@@ -553,8 +606,7 @@ async function applyMapping(anilistMedia) {
     currentProgress: 0,
     currentStatus: 'NOT_IN_LIST'
   };
-  state.activeSearchItem.selected = true;
-  state.activeSearchItem.needsSync = true;
+  updateItemSyncState(state.activeSearchItem);
 
   elements.searchModal.classList.add('hidden');
   renderWebtoonList();
@@ -582,6 +634,19 @@ async function handleBatchSync() {
     elements.btnBatchSyncText.textContent = `동기화 진행 중 (${i + 1}/${selectedItems.length})...`;
 
     try {
+      const keepMax = state.settings?.keepMaxProgress !== false;
+      const currentProg = item.anilistData ? Number(item.anilistData.currentProgress || 0) : 0;
+
+      // 최대 회차 보존 활성화 시 더 낮은 회차로의 덮어쓰기 방어
+      if (keepMax && item.episodeNo < currentProg) {
+        console.log(`[handleBatchSync] Preserving max progress for ${item.titleName}: ${currentProg} > ${item.episodeNo}`);
+        item.needsSync = false;
+        item.selected = false;
+        item.isRewatch = true;
+        successCount++;
+        continue;
+      }
+
       const threshold = state.settings?.planningThreshold || 5;
       const targetStatus = getMediaListStatus(item.episodeNo, threshold);
 
@@ -612,7 +677,8 @@ async function handleBatchSync() {
 
   // 성공적으로 동기화된 웹툰 목록을 로컬 스토리지에 영구 기록
   if (successfullySyncedItems.length > 0) {
-    await StorageService.recordBatchSync(successfullySyncedItems);
+    const keepMax = state.settings?.keepMaxProgress !== false;
+    await StorageService.recordBatchSync(successfullySyncedItems, keepMax);
     state.syncHistory = await StorageService.getSyncHistory();
   }
 

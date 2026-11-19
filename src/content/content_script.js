@@ -135,7 +135,15 @@
           isSynced = true;
           if (dot) dot.className = 'nw-status-dot';
           const titleEl = document.getElementById('nwTitle');
-          if (titleEl) titleEl.textContent = '✓ AniList 동기화됨';
+          if (titleEl) {
+            if (response.result?.preserved) {
+              titleEl.textContent = `✓ 최대 ${response.result.progress}화 유지됨`;
+              if (dot) dot.title = `재주행 감지: 현재 ${meta.episodeNo}화 시청 중이나 AniList 최대 ${response.result.progress}화 기록을 유지합니다.`;
+            } else {
+              titleEl.textContent = '✓ AniList 동기화됨';
+              if (dot) dot.title = `AniList 동기화 완료: ${meta.episodeNo}화`;
+            }
+          }
         } else {
           if (dot) dot.className = 'nw-status-dot unmatched';
           console.warn('[nw_anilist] Sync failed:', response?.error);
